@@ -1,0 +1,623 @@
+{
+  "hit@5": 0.9778,
+  "recall@5": 0.8374,
+  "precision@5": 0.3556,
+  "mrr": 0.8774,
+  "ndcg@5": 0.8146,
+  "recall@10": 0.8467,
+  "by_type": {
+    "exact": {
+      "hit@5": 1.0,
+      "recall@5": 0.9167,
+      "precision@5": 0.35,
+      "mrr": 1.0,
+      "ndcg@5": 0.9296
+    },
+    "semantic": {
+      "hit@5": 0.9333,
+      "recall@5": 0.85,
+      "precision@5": 0.2533,
+      "mrr": 0.8356,
+      "ndcg@5": 0.7929
+    },
+    "list": {
+      "hit@5": 1.0,
+      "recall@5": 0.6033,
+      "precision@5": 0.56,
+      "mrr": 0.8,
+      "ndcg@5": 0.6613
+    },
+    "multi": {
+      "hit@5": 1.0,
+      "recall@5": 0.8056,
+      "precision@5": 0.5333,
+      "mrr": 0.75,
+      "ndcg@5": 0.7124
+    },
+    "typo": {
+      "hit@5": 1.0,
+      "recall@5": 1.0,
+      "precision@5": 0.4667,
+      "mrr": 1.0,
+      "ndcg@5": 1.0
+    },
+    "followup": {
+      "hit@5": 1.0,
+      "recall@5": 0.6111,
+      "precision@5": 0.2667,
+      "mrr": 0.5667,
+      "ndcg@5": 0.4819
+    }
+  },
+  "negative_abstention_rate": 0.0,
+  "positive_false_rejection_rate": 0.0,
+  "balanced_accuracy": 0.5,
+  "config": "production-no_contextual_text",
+  "overrides": {
+    "content_only": true,
+    "routing": true
+  },
+  "index_seconds": 2.9,
+  "latency_ms": {
+    "embed_ms": {
+      "mean": 5.71,
+      "p95": 6.6
+    },
+    "search_ms": {
+      "mean": 1.91,
+      "p95": 2.6
+    },
+    "rerank_ms": {
+      "mean": 0.0,
+      "p95": 0.0
+    }
+  },
+  "rss_mb": {
+    "process": 491.2,
+    "models_and_index": 385.3
+  },
+  "calibration": {
+    "safe_threshold": 0.526,
+    "negative_abstention": 0.3333,
+    "recall@5_at_safe": 0.8328,
+    "recall@5_ungated": 0.8374,
+    "note": "highest gate losing no Hit@5; 6 negatives, so indicative only"
+  },
+  "cases": [
+    {
+      "id": "fact-01",
+      "ranked": [
+        "PRJ008",
+        "ART004",
+        "FAQ007",
+        "SOC001",
+        "SOC002"
+      ]
+    },
+    {
+      "id": "fact-02",
+      "ranked": [
+        "PRJ001",
+        "FAQ002",
+        "SOC001",
+        "SK001",
+        "FAQ005"
+      ]
+    },
+    {
+      "id": "fact-03",
+      "ranked": [
+        "FAQ001",
+        "PER002",
+        "SOC001",
+        "SOC003",
+        "EXP002"
+      ]
+    },
+    {
+      "id": "fact-04",
+      "ranked": [
+        "SOC003",
+        "ART001",
+        "EXP002",
+        "SOC001",
+        "SOC002"
+      ]
+    },
+    {
+      "id": "fact-05",
+      "ranked": [
+        "PER001",
+        "EXP002",
+        "SOC003",
+        "SOC001",
+        "FAQ006"
+      ]
+    },
+    {
+      "id": "fact-06",
+      "ranked": [
+        "EXP002",
+        "SOC003",
+        "PER001",
+        "FAQ004",
+        "SOC001"
+      ]
+    },
+    {
+      "id": "fact-07",
+      "ranked": [
+        "PRJ006",
+        "SOC005",
+        "SOC001",
+        "SK001",
+        "FAQ007"
+      ]
+    },
+    {
+      "id": "fact-08",
+      "ranked": [
+        "PRJ007",
+        "SK002",
+        "SK006",
+        "EXP001",
+        "PRJ003"
+      ]
+    },
+    {
+      "id": "fact-09",
+      "ranked": [
+        "PRJ005",
+        "SK003",
+        "SK004",
+        "SOC001",
+        "PRJ001"
+      ]
+    },
+    {
+      "id": "fact-10",
+      "ranked": [
+        "PRJ004",
+        "SK002",
+        "PRJ001",
+        "FAQ002",
+        "SK004"
+      ]
+    },
+    {
+      "id": "fact-11",
+      "ranked": [
+        "PRJ003",
+        "FAQ004",
+        "EXP001",
+        "SK003",
+        "PRJ005"
+      ]
+    },
+    {
+      "id": "fact-12",
+      "ranked": [
+        "EXP001",
+        "SK005",
+        "FAQ007",
+        "PRJ008",
+        "PRJ003"
+      ]
+    },
+    {
+      "id": "fact-13",
+      "ranked": [
+        "SOC004",
+        "PER001",
+        "SK003",
+        "FAQ001",
+        "PRJ002"
+      ]
+    },
+    {
+      "id": "fact-14",
+      "ranked": [
+        "FAQ006",
+        "SOC001",
+        "SOC002",
+        "PER003",
+        "SOC003"
+      ]
+    },
+    {
+      "id": "fact-15",
+      "ranked": [
+        "SOC001",
+        "SOC002",
+        "SK002",
+        "SOC003",
+        "SOC004"
+      ]
+    },
+    {
+      "id": "fact-16",
+      "ranked": [
+        "SOC002",
+        "ART002",
+        "ART001",
+        "FAQ006",
+        "ART004"
+      ]
+    },
+    {
+      "id": "fact-17",
+      "ranked": [
+        "PER003",
+        "SOC003",
+        "SOC001",
+        "ART001",
+        "EXP002"
+      ]
+    },
+    {
+      "id": "fact-18",
+      "ranked": [
+        "PER002",
+        "PER001",
+        "PER003",
+        "EXP002",
+        "SOC002",
+        "SOC001",
+        "SOC003",
+        "FAQ005",
+        "FAQ004",
+        "FAQ006"
+      ]
+    },
+    {
+      "id": "fact-19",
+      "ranked": [
+        "FAQ002",
+        "PRJ001",
+        "PRJ004",
+        "SK005",
+        "SK001"
+      ]
+    },
+    {
+      "id": "fact-20",
+      "ranked": [
+        "SK005",
+        "EXP001",
+        "PRJ001",
+        "SK002",
+        "FAQ002"
+      ]
+    },
+    {
+      "id": "sem-01",
+      "ranked": [
+        "SOC003",
+        "EXP001",
+        "PRJ001",
+        "FAQ002",
+        "SOC001"
+      ]
+    },
+    {
+      "id": "sem-02",
+      "ranked": [
+        "PRJ007",
+        "SOC003",
+        "SK003",
+        "EXP002",
+        "SK006"
+      ]
+    },
+    {
+      "id": "sem-03",
+      "ranked": [
+        "SK006",
+        "SOC003",
+        "SK004",
+        "SK002",
+        "SK001"
+      ]
+    },
+    {
+      "id": "sem-04",
+      "ranked": [
+        "SK003",
+        "SK004",
+        "SK001",
+        "FAQ001",
+        "SK005"
+      ]
+    },
+    {
+      "id": "sem-05",
+      "ranked": [
+        "EXP001",
+        "EXP002",
+        "SOC003",
+        "SK003",
+        "SK005"
+      ]
+    },
+    {
+      "id": "sem-06",
+      "ranked": [
+        "FAQ005",
+        "SK001",
+        "EXP002",
+        "SOC001",
+        "PRJ003"
+      ]
+    },
+    {
+      "id": "sem-07",
+      "ranked": [
+        "ART001",
+        "PRJ002",
+        "ART003",
+        "SOC003",
+        "PER001"
+      ]
+    },
+    {
+      "id": "sem-08",
+      "ranked": [
+        "ART003",
+        "FAQ001",
+        "PER001",
+        "ART004",
+        "PER002"
+      ]
+    },
+    {
+      "id": "sem-09",
+      "ranked": [
+        "SK002",
+        "ART004",
+        "PRJ008",
+        "SOC003",
+        "FAQ003"
+      ]
+    },
+    {
+      "id": "sem-10",
+      "ranked": [
+        "SK002",
+        "FAQ004",
+        "PRJ003",
+        "SK005",
+        "SK004"
+      ]
+    },
+    {
+      "id": "sem-11",
+      "ranked": [
+        "SK003",
+        "PRJ005",
+        "EXP001",
+        "SOC001",
+        "SOC003"
+      ]
+    },
+    {
+      "id": "list-01",
+      "ranked": [
+        "SOC003",
+        "PRJ006",
+        "EXP002",
+        "SK003",
+        "PRJ002",
+        "SOC001",
+        "PER001",
+        "SOC002",
+        "FAQ004",
+        "FAQ005"
+      ]
+    },
+    {
+      "id": "list-02",
+      "ranked": [
+        "ART001",
+        "ART002",
+        "ART003",
+        "SOC002",
+        "ART004",
+        "SOC001",
+        "SOC003",
+        "PER003",
+        "EXP002",
+        "FAQ005"
+      ]
+    },
+    {
+      "id": "list-03",
+      "ranked": [
+        "SK005",
+        "SK004",
+        "SK002",
+        "SK001",
+        "EXP002",
+        "SOC003",
+        "SOC002",
+        "ART001",
+        "FAQ006",
+        "SK006"
+      ]
+    },
+    {
+      "id": "list-04",
+      "ranked": [
+        "PER001",
+        "EXP002",
+        "SOC003",
+        "ART001",
+        "SOC002"
+      ]
+    },
+    {
+      "id": "list-05",
+      "ranked": [
+        "SOC003",
+        "SOC001",
+        "SOC002",
+        "FAQ006",
+        "PER003"
+      ]
+    },
+    {
+      "id": "multi-01",
+      "ranked": [
+        "FAQ004",
+        "EXP001",
+        "PRJ003",
+        "SK002",
+        "SK003"
+      ]
+    },
+    {
+      "id": "multi-02",
+      "ranked": [
+        "PRJ001",
+        "PRJ006",
+        "PRJ005",
+        "PRJ003",
+        "SK002",
+        "PRJ004",
+        "FAQ003",
+        "PRJ008",
+        "FAQ004",
+        "SK005"
+      ]
+    },
+    {
+      "id": "multi-03",
+      "ranked": [
+        "FAQ001",
+        "PER001",
+        "SK004",
+        "FAQ004",
+        "EXP001"
+      ]
+    },
+    {
+      "id": "typo-01",
+      "ranked": [
+        "PRJ008",
+        "ART004",
+        "FAQ007",
+        "SOC001",
+        "SK004"
+      ]
+    },
+    {
+      "id": "typo-02",
+      "ranked": [
+        "FAQ002",
+        "PRJ001",
+        "SOC001",
+        "SK001",
+        "FAQ005"
+      ]
+    },
+    {
+      "id": "typo-03",
+      "ranked": [
+        "PRJ006",
+        "SOC005",
+        "SK001",
+        "FAQ007",
+        "PRJ008"
+      ]
+    },
+    {
+      "id": "follow-01",
+      "ranked": [
+        "SK005",
+        "FAQ002",
+        "PRJ004",
+        "PRJ001",
+        "EXP001"
+      ]
+    },
+    {
+      "id": "follow-02",
+      "ranked": [
+        "FAQ002",
+        "PRJ001",
+        "FAQ001",
+        "SK004",
+        "EXP001"
+      ]
+    },
+    {
+      "id": "follow-03",
+      "ranked": [
+        "PRJ007",
+        "FAQ003",
+        "SK004",
+        "PRJ004",
+        "SK005"
+      ]
+    },
+    {
+      "id": "neg-01",
+      "ranked": [
+        "SOC003",
+        "SOC001",
+        "ART001",
+        "SOC002",
+        "PER001"
+      ]
+    },
+    {
+      "id": "neg-02",
+      "ranked": [
+        "FAQ006",
+        "SOC002",
+        "PER003",
+        "EXP002",
+        "SOC003"
+      ]
+    },
+    {
+      "id": "neg-03",
+      "ranked": [
+        "PER002",
+        "FAQ003",
+        "SK001",
+        "PRJ002",
+        "FAQ001"
+      ]
+    },
+    {
+      "id": "neg-04",
+      "ranked": [
+        "SOC002",
+        "EXP002",
+        "SOC001",
+        "SOC003",
+        "PER001"
+      ]
+    },
+    {
+      "id": "neg-05",
+      "ranked": [
+        "SOC005",
+        "FAQ007",
+        "ART004",
+        "PRJ006",
+        "SK001"
+      ]
+    },
+    {
+      "id": "neg-06",
+      "ranked": [
+        "SOC005",
+        "FAQ002",
+        "PRJ006",
+        "PRJ001",
+        "ART004"
+      ]
+    }
+  ]
+}

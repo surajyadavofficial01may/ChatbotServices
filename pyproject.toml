@@ -1,0 +1,38 @@
+[project]
+name = "portfolio-rag-chatbot"
+version = "1.0.0"
+description = "Free-tier friendly RAG chatbot backend for a personal portfolio: FastAPI, Qdrant, FastEmbed and Groq."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+# Dependencies are pinned in requirements.txt (runtime) and requirements-dev.txt (tooling),
+# which is what Render and CI install.
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E", "W",  # pycodestyle (PEP 8)
+    "F",       # pyflakes
+    "I",       # import sorting
+    "UP",      # modern Python syntax
+    "B",       # bugbear
+    "ANN",     # type annotations
+    "D",       # docstrings
+]
+ignore = [
+    "ANN401",  # typing.Any is acceptable for third-party objects
+    "D105", "D107",  # magic methods / __init__ are documented on the class
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "ANN"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = "--import-mode=importlib"

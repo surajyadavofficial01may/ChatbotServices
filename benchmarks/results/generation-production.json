@@ -1,0 +1,381 @@
+{
+  "config": "production",
+  "generation": {
+    "cases": 27,
+    "negative_refusal_rate": 1.0,
+    "positive_false_refusal_rate": 0.0,
+    "fact_recall": 1.0,
+    "source_precision": 0.9722,
+    "answers_with_citations": 1.0,
+    "end_to_end_latency_ms_mean": 1854.1
+  },
+  "cases": [
+    {
+      "id": "fact-03",
+      "type": "exact",
+      "answer": "Suraj Kumar Yadav’s CGPA was 8.35 out of 10.0[1][2]",
+      "returned_source_ids": [
+        "FAQ001",
+        "PER002"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 1467.2
+    },
+    {
+      "id": "fact-04",
+      "type": "semantic",
+      "answer": "- Suraj Kumar Yadav earned a B.Tech in Computer Science from KIIT Deemed University[1].",
+      "returned_source_ids": [
+        "FAQ001"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 1668.2
+    },
+    {
+      "id": "fact-05",
+      "type": "exact",
+      "answer": "Suraj Kumar Yadav is currently employed as a Software Engineer at **Spotline, Inc.**[1][2]",
+      "returned_source_ids": [
+        "PER001",
+        "EXP001"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 1295.6
+    },
+    {
+      "id": "fact-07",
+      "type": "exact",
+      "answer": "- ZipIgnore is an open‑source Python command‑line utility created by Suraj Kumar Yadav that packages clean, reproducible project ZIP archives in a single command, automatically excluding virtual environments, node_modules, __pycache__, and files matched by .gitignore [1].  \n- It is published on the official Python Package Index (PyPI) as a Python CLI packaging utility [2].",
+      "returned_source_ids": [
+        "PRJ006",
+        "SOC005"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 2334.3
+    },
+    {
+      "id": "fact-08",
+      "type": "exact",
+      "answer": "MeDict AI achieves **81 % accuracy** in detecting pulmonary nodules. [1]",
+      "returned_source_ids": [
+        "PRJ007"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 1080.3
+    },
+    {
+      "id": "fact-12",
+      "type": "exact",
+      "answer": "- DB-Compare is a high‑performance cross‑database validation platform that Suraj Kumar Yadav led the development of while working as a Software Engineer at Spotline, Inc. [1]",
+      "returned_source_ids": [
+        "EXP001"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 1394.4
+    },
+    {
+      "id": "fact-14",
+      "type": "semantic",
+      "answer": "- Email: owner@example.com[1][2]  \n- Phone: +91 00000 00000[1][2]  \n- LinkedIn profile: https://linkedin.com/in/surajyadav01[1][3]",
+      "returned_source_ids": [
+        "FAQ006",
+        "PER003",
+        "SOC002"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 0.6666666666666666,
+      "latency_ms": 1456.8
+    },
+    {
+      "id": "fact-17",
+      "type": "semantic",
+      "answer": "- English  \n- Hindi[1]",
+      "returned_source_ids": [
+        "PER003"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 866.7
+    },
+    {
+      "id": "fact-19",
+      "type": "exact",
+      "answer": "- EVEE’s command‑to‑keypress matcher has a latency of **1.6 ms (p95)**[1][2]",
+      "returned_source_ids": [
+        "PRJ001",
+        "FAQ002"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 3099.8
+    },
+    {
+      "id": "fact-20",
+      "type": "exact",
+      "answer": "- The RAG system achieved a **sub‑45 ms cache‑hit latency**[1][2]",
+      "returned_source_ids": [
+        "SK005",
+        "EXP001"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 3135.3
+    },
+    {
+      "id": "sem-02",
+      "type": "semantic",
+      "answer": "- Yes. He built **MeDict AI**, a deep‑learning medical imaging diagnostic system that detects pulmonary nodules in chest CT scans with 81 % accuracy, using Python, TensorFlow, Keras, and Streamlit[1].",
+      "returned_source_ids": [
+        "PRJ007"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 1340.2
+    },
+    {
+      "id": "sem-03",
+      "type": "semantic",
+      "answer": "Yes. He deploys containerized systems using Google Kubernetes Engine (GKE) and Amazon EKS, both Kubernetes platforms[1].",
+      "returned_source_ids": [
+        "SK006"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 1388.3
+    },
+    {
+      "id": "sem-08",
+      "type": "semantic",
+      "answer": "- Yes. Suraj Kumar Yadav authored the LinkedIn Pulse article “**Chandrayaan 3: Unveiling the Triumph of Truth and Our Cosmic Love Story**,” in which he celebrates ISRO’s historic lunar south‑pole landing and discusses the mission’s significance for India[1].",
+      "returned_source_ids": [
+        "ART003"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 1491.5
+    },
+    {
+      "id": "sem-09",
+      "type": "semantic",
+      "answer": "- Yes. Suraj Kumar Yadav created **Jira Fixer**, an open‑source, MIT‑licensed plugin for the AI coding assistants **Claude Code** and **GitHub Copilot** that adds a deterministic safety‑gate hook to block unapproved file edits and automate Jira comments, commit messages, and PR descriptions[1][2].  \n- The plugin implements “deterministic safety gate hooks” that physically block AI‑generated file changes until the developer approves a minimal plan, ensuring controlled edits by the coding assistants[3].",
+      "returned_source_ids": [
+        "ART004",
+        "PRJ008",
+        "SK002"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 1704.0
+    },
+    {
+      "id": "list-01",
+      "type": "list",
+      "answer": "- VAssureAI (V‑Assure ScriptGen Extension) – AI‑powered compliance test script generator for Veeva Vault [1]  \n- Travel Together – Collaborative community trip and itinerary planner [2]  \n- MeDict AI – Deep‑learning lung‑cancer diagnostic system [3]  \n- ZipIgnore – Automated Python packaging CLI utility on PyPI [4]  \n- Aiden – Emotionally intelligent AI companion with tree‑leaf persistent memory [5]  \n- EVEE – Offline‑first voice‑controlled PC agent for Windows 11 [6]",
+      "returned_source_ids": [
+        "PRJ003",
+        "PRJ002",
+        "PRJ007",
+        "PRJ006",
+        "PRJ004",
+        "PRJ001"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 1558.6
+    },
+    {
+      "id": "list-04",
+      "type": "list",
+      "answer": "- **Software Engineer, Spotline, Inc., Bhubaneswar** – May 2025 to present; led three end‑to‑end production systems including VAssureAI, DB‑Compare, and an Agentic‑RAG platform[1]  \n- **Salesforce Development Intern, SmartInternz** – May 2024 to June 2024; built custom Apex triggers, batch jobs, SOQL queries, and automated CRM workflows that cut manual data work by 30%[2]",
+      "returned_source_ids": [
+        "EXP001",
+        "EXP002"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 1524.3
+    },
+    {
+      "id": "multi-01",
+      "type": "multi",
+      "answer": "- **Frontend:** Manifest V3 Chrome Extension [1][2][3][4]  \n- **Backend:** Asynchronous Python FastAPI server [1][2][3]  \n- **LLM provider:** Groq (LLM inference) [1][2][3]  \n- **Security:** OAuth2 + JWT authentication [2]",
+      "returned_source_ids": [
+        "FAQ004",
+        "PRJ003",
+        "EXP001",
+        "SK003"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 0.75,
+      "latency_ms": 2745.7
+    },
+    {
+      "id": "multi-03",
+      "type": "multi",
+      "answer": "- **VAssureAI (V‑Assure ScriptGen Extension)** – an enterprise Chrome Extension (Manifest V3) with an asynchronous FastAPI + Groq LLM backend that extracts requirement context and generates compliant validation test scripts for Veeva Vault[1].  \n- **DB‑Compare** – a high‑performance cross‑database validation platform[2].  \n- **Agentic‑RAG system** – a production‑grade Retrieval‑Augmented Generation service built with LangGraph, MongoDB Atlas Vector Search, and Redis, delivering sub‑45 ms cache‑hit latency and integrated with Microsoft Teams[2].  \n\n**Tech stack used at Spotline**  \n- Chrome Extension (Manifest V3)  \n- FastAPI (Python)  \n- Groq LLM (LLM inference)  \n- LangGraph (agentic AI orchestration)  \n- MongoDB Atlas Vector Search  \n- Redis (caching)  \n- Integration with Microsoft Teams[2][1].",
+      "returned_source_ids": [
+        "FAQ004",
+        "EXP001"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 2650.5
+    },
+    {
+      "id": "follow-01",
+      "type": "followup",
+      "answer": "- EVEE achieves a 1.6 ms (p95) latency for its command‑to‑keypress matcher (including negation checks)[1][2]",
+      "returned_source_ids": [
+        "PRJ001",
+        "FAQ002"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 3455.8
+    },
+    {
+      "id": "follow-02",
+      "type": "followup",
+      "answer": "- **Frontend:** Chrome Extension built with Manifest V3  \n- **Backend:** Asynchronous Python FastAPI server  \n- **AI engine:** Groq LLM integration  \n- **Security:** OAuth2 / JWT authentication  \n\nThese components together form the tech stack used for VAssureAI at Spotline Inc. [1][2]",
+      "returned_source_ids": [
+        "FAQ004",
+        "PRJ003"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 3375.0
+    },
+    {
+      "id": "follow-03",
+      "type": "followup",
+      "answer": "- VGG16 (fine‑tuned)  \n- ResNet‑50  \n- InceptionV3  \n- EfficientNet  \n\nThese four convolutional neural networks were used in the MeDict AI system [1][2]",
+      "returned_source_ids": [
+        "PRJ007",
+        "SK006"
+      ],
+      "refused": false,
+      "cited": true,
+      "fact_recall": 1.0,
+      "source_precision": 1.0,
+      "latency_ms": 2432.8
+    },
+    {
+      "id": "neg-01",
+      "type": "negative",
+      "answer": "That information is not available in the portfolio knowledge base.",
+      "returned_source_ids": [],
+      "refused": true,
+      "cited": false,
+      "fact_recall": null,
+      "source_precision": null,
+      "latency_ms": 1585.1
+    },
+    {
+      "id": "neg-02",
+      "type": "negative",
+      "answer": "That information is not available in the portfolio knowledge base.",
+      "returned_source_ids": [],
+      "refused": true,
+      "cited": false,
+      "fact_recall": null,
+      "source_precision": null,
+      "latency_ms": 1411.2
+    },
+    {
+      "id": "neg-03",
+      "type": "negative",
+      "answer": "That information is not available in the portfolio knowledge base.",
+      "returned_source_ids": [],
+      "refused": true,
+      "cited": false,
+      "fact_recall": null,
+      "source_precision": null,
+      "latency_ms": 1472.3
+    },
+    {
+      "id": "neg-04",
+      "type": "negative",
+      "answer": "That information is not available in the portfolio knowledge base.",
+      "returned_source_ids": [],
+      "refused": true,
+      "cited": false,
+      "fact_recall": null,
+      "source_precision": null,
+      "latency_ms": 1022.7
+    },
+    {
+      "id": "neg-05",
+      "type": "negative",
+      "answer": "That information is not available in the portfolio knowledge base.",
+      "returned_source_ids": [],
+      "refused": true,
+      "cited": false,
+      "fact_recall": null,
+      "source_precision": null,
+      "latency_ms": 1343.7
+    },
+    {
+      "id": "neg-06",
+      "type": "negative",
+      "answer": "I’m sorry, but I can’t comply with that.",
+      "returned_source_ids": [
+        "SK004",
+        "SK002",
+        "PRJ001",
+        "PRJ006",
+        "ART004"
+      ],
+      "refused": true,
+      "cited": false,
+      "fact_recall": null,
+      "source_precision": null,
+      "latency_ms": 1760.2
+    }
+  ]
+}

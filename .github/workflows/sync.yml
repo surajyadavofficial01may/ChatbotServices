@@ -1,0 +1,44 @@
+name: Sync knowledge base
+
+# Calls the deployed API's webhook so Qdrant picks up knowledge-base changes.
+# Setup (repository Settings -> Secrets and variables -> Actions):
+#   secret   SYNC_WEBHOOK_URL     e.g. https://your-app.onrender.com/api/v1/webhook/sync
+#   secret   SYNC_WEBHOOK_SECRET  same value as WEBHOOK_SECRET on the server
+# Sync is idempotent, so running when nothing changed is harmless.
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"  # every 6 hours (UTC)
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check configuration
+        env:
+          URL: ${{ secrets.SYNC_WEBHOOK_URL }}
+          SECRET: ${{ secrets.SYNC_WEBHOOK_SECRET }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$SECRET" ]; then
+            echo "::error::Set the SYNC_WEBHOOK_URL and SYNC_WEBHOOK_SECRET repository secrets."
+            exit 1
+          fi
+
+      - name: Trigger sync
+        env:
+          URL: ${{ secrets.SYNC_WEBHOOK_URL }}
+          SECRET: ${{ secrets.SYNC_WEBHOOK_SECRET }}
+        run: |
+          # Render free instances sleep when idle: allow time for a cold start and retry.
+          response=$(curl --silent --show-error --fail-with-body \
+            --retry 3 --retry-delay 30 --retry-all-errors --max-time 180 \
+            -X POST "$URL" -H "X-Webhook-Secret: $SECRET")
+          echo "$response" | jq .
+          echo "$response" | jq -e '.success == true' > /dev/null || {
+            echo "::error::Sync reported failure: $(echo "$response" | jq -r '.error')"
+            exit 1
+          }

@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.fastembed_cache/
+.coverage
+htmlcov/
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+.secrets/
+*credentials*.json
+service-account*.json
+client_secret*.json
+
+# Local / personal
+private/
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

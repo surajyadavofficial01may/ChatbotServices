@@ -1,0 +1,562 @@
+{
+  "hit@5": 0.9333,
+  "recall@5": 0.8311,
+  "precision@5": 0.48,
+  "mrr": 0.8322,
+  "ndcg@5": 0.8031,
+  "recall@10": 0.8459,
+  "by_type": {
+    "exact": {
+      "hit@5": 1.0,
+      "recall@5": 0.9792,
+      "precision@5": 0.5458,
+      "mrr": 1.0,
+      "ndcg@5": 0.9664
+    },
+    "semantic": {
+      "hit@5": 0.9333,
+      "recall@5": 0.9167,
+      "precision@5": 0.44,
+      "mrr": 0.9,
+      "ndcg@5": 0.9008
+    },
+    "list": {
+      "hit@5": 0.8,
+      "recall@5": 0.3633,
+      "precision@5": 0.28,
+      "mrr": 0.39,
+      "ndcg@5": 0.2988
+    },
+    "multi": {
+      "hit@5": 1.0,
+      "recall@5": 0.7222,
+      "precision@5": 0.4667,
+      "mrr": 0.5556,
+      "ndcg@5": 0.5835
+    },
+    "typo": {
+      "hit@5": 1.0,
+      "recall@5": 1.0,
+      "precision@5": 0.7556,
+      "mrr": 1.0,
+      "ndcg@5": 1.0
+    },
+    "followup": {
+      "hit@5": 0.6667,
+      "recall@5": 0.3333,
+      "precision@5": 0.4,
+      "mrr": 0.4444,
+      "ndcg@5": 0.3066
+    }
+  },
+  "negative_abstention_rate": 0.5,
+  "positive_false_rejection_rate": 0.0444,
+  "balanced_accuracy": 0.7278,
+  "config": "+rerank_minilm_l12",
+  "overrides": {
+    "content_only": false,
+    "routing": true,
+    "reranker_model": "Xenova/ms-marco-MiniLM-L-12-v2"
+  },
+  "index_seconds": 3.92,
+  "latency_ms": {
+    "embed_ms": {
+      "mean": 73.3,
+      "p95": 143.0
+    },
+    "search_ms": {
+      "mean": 11.83,
+      "p95": 32.0
+    },
+    "rerank_ms": {
+      "mean": 2770.92,
+      "p95": 3664.4
+    }
+  },
+  "rss_mb": {
+    "process": 856.4,
+    "models_and_index": 750.3
+  },
+  "calibration": {
+    "best_threshold": 0.234,
+    "negative_abstention": 1.0,
+    "positive_false_rejection": 0.2222,
+    "hit@5_at_best": 0.7556,
+    "note": "6 negatives — indicative, not a tuned guarantee"
+  },
+  "cases": [
+    {
+      "id": "fact-01",
+      "ranked": [
+        "FAQ007",
+        "PRJ008",
+        "ART004",
+        "SOC001",
+        "SK004"
+      ]
+    },
+    {
+      "id": "fact-02",
+      "ranked": [
+        "FAQ002",
+        "PRJ001",
+        "SK001",
+        "FAQ005",
+        "SOC001"
+      ]
+    },
+    {
+      "id": "fact-03",
+      "ranked": [
+        "FAQ001",
+        "PER002",
+        "FAQ004",
+        "FAQ005",
+        "SK001"
+      ]
+    },
+    {
+      "id": "fact-04",
+      "ranked": [
+        "PER002",
+        "FAQ001",
+        "PER001",
+        "FAQ004",
+        "PER003"
+      ]
+    },
+    {
+      "id": "fact-05",
+      "ranked": [
+        "PER001",
+        "EXP002",
+        "FAQ001",
+        "EXP001",
+        "FAQ004"
+      ]
+    },
+    {
+      "id": "fact-06",
+      "ranked": [
+        "EXP002",
+        "FAQ004",
+        "FAQ005",
+        "EXP001",
+        "PER001"
+      ]
+    },
+    {
+      "id": "fact-07",
+      "ranked": [
+        "PRJ006",
+        "SOC005",
+        "SK001",
+        "SOC001"
+      ]
+    },
+    {
+      "id": "fact-08",
+      "ranked": [
+        "PRJ007",
+        "SK006",
+        "SOC001"
+      ]
+    },
+    {
+      "id": "fact-09",
+      "ranked": [
+        "PRJ005",
+        "SK004",
+        "SOC001",
+        "SK003"
+      ]
+    },
+    {
+      "id": "fact-10",
+      "ranked": [
+        "PRJ004",
+        "SK002"
+      ]
+    },
+    {
+      "id": "fact-11",
+      "ranked": [
+        "PRJ003",
+        "FAQ004",
+        "EXP001",
+        "SK003"
+      ]
+    },
+    {
+      "id": "fact-12",
+      "ranked": [
+        "EXP001"
+      ]
+    },
+    {
+      "id": "fact-13",
+      "ranked": [
+        "SOC004",
+        "PRJ002",
+        "PER001",
+        "FAQ001",
+        "SK003"
+      ]
+    },
+    {
+      "id": "fact-14",
+      "ranked": [
+        "FAQ006",
+        "PER003",
+        "FAQ005",
+        "SOC002",
+        "FAQ001"
+      ]
+    },
+    {
+      "id": "fact-15",
+      "ranked": [
+        "SOC001",
+        "SOC002",
+        "FAQ003",
+        "FAQ002",
+        "SK002"
+      ]
+    },
+    {
+      "id": "fact-16",
+      "ranked": [
+        "SOC002",
+        "ART003",
+        "ART001",
+        "ART002",
+        "PER003"
+      ]
+    },
+    {
+      "id": "fact-17",
+      "ranked": [
+        "PER003",
+        "SK001",
+        "FAQ001",
+        "FAQ003",
+        "PER001"
+      ]
+    },
+    {
+      "id": "fact-18",
+      "ranked": [
+        "PER002",
+        "FAQ001",
+        "PER003",
+        "FAQ005",
+        "FAQ003"
+      ]
+    },
+    {
+      "id": "fact-19",
+      "ranked": [
+        "FAQ002",
+        "PRJ001"
+      ]
+    },
+    {
+      "id": "fact-20",
+      "ranked": [
+        "SK005",
+        "EXP001",
+        "FAQ003"
+      ]
+    },
+    {
+      "id": "sem-01",
+      "ranked": [
+        "FAQ002",
+        "PRJ001",
+        "FAQ003",
+        "SOC003",
+        "EXP001"
+      ]
+    },
+    {
+      "id": "sem-02",
+      "ranked": []
+    },
+    {
+      "id": "sem-03",
+      "ranked": [
+        "SK006"
+      ]
+    },
+    {
+      "id": "sem-04",
+      "ranked": [
+        "SK003",
+        "FAQ005",
+        "SK001",
+        "SK004",
+        "FAQ001",
+        "FAQ003",
+        "FAQ004",
+        "PER001",
+        "PRJ003",
+        "SK006"
+      ]
+    },
+    {
+      "id": "sem-05",
+      "ranked": [
+        "SK005",
+        "SK006",
+        "EXP001",
+        "SK001",
+        "FAQ003"
+      ]
+    },
+    {
+      "id": "sem-06",
+      "ranked": [
+        "FAQ005",
+        "SK001",
+        "SK006",
+        "PER003",
+        "FAQ004"
+      ]
+    },
+    {
+      "id": "sem-07",
+      "ranked": [
+        "ART001",
+        "PRJ002",
+        "SK004",
+        "ART003",
+        "SOC001"
+      ]
+    },
+    {
+      "id": "sem-08",
+      "ranked": [
+        "ART003"
+      ]
+    },
+    {
+      "id": "sem-09",
+      "ranked": [
+        "SOC003",
+        "SK002",
+        "PRJ008",
+        "PRJ005",
+        "ART004"
+      ]
+    },
+    {
+      "id": "sem-10",
+      "ranked": [
+        "SK002",
+        "FAQ003"
+      ]
+    },
+    {
+      "id": "sem-11",
+      "ranked": [
+        "PRJ005",
+        "SK003",
+        "SOC001",
+        "SK004",
+        "FAQ003"
+      ]
+    },
+    {
+      "id": "list-01",
+      "ranked": [
+        "EXP002",
+        "SOC003",
+        "PER001",
+        "FAQ003",
+        "FAQ006",
+        "FAQ004",
+        "EXP001",
+        "SK003",
+        "FAQ001",
+        "SOC002"
+      ]
+    },
+    {
+      "id": "list-02",
+      "ranked": [
+        "ART001",
+        "SOC002",
+        "ART003",
+        "ART002",
+        "FAQ003",
+        "SOC001",
+        "FAQ001",
+        "FAQ005",
+        "PER003",
+        "PER001"
+      ]
+    },
+    {
+      "id": "list-03",
+      "ranked": [
+        "PER003",
+        "FAQ005",
+        "FAQ001",
+        "PER001",
+        "SK001",
+        "PER002",
+        "FAQ006",
+        "EXP001",
+        "SK002",
+        "FAQ003"
+      ]
+    },
+    {
+      "id": "list-04",
+      "ranked": [
+        "PER001",
+        "SOC003",
+        "PER003",
+        "EXP002",
+        "FAQ006"
+      ]
+    },
+    {
+      "id": "list-05",
+      "ranked": [
+        "FAQ006",
+        "SOC002",
+        "PER003",
+        "FAQ001",
+        "SOC001"
+      ]
+    },
+    {
+      "id": "multi-01",
+      "ranked": [
+        "FAQ004",
+        "PRJ003",
+        "SK003",
+        "EXP001",
+        "SK004",
+        "FAQ005",
+        "FAQ003",
+        "SK001",
+        "SK006",
+        "SK002"
+      ]
+    },
+    {
+      "id": "multi-02",
+      "ranked": [
+        "SK002",
+        "FAQ003",
+        "PRJ004",
+        "EXP001",
+        "PRJ005",
+        "FAQ004",
+        "FAQ002",
+        "PRJ003",
+        "PRJ001",
+        "SK005"
+      ]
+    },
+    {
+      "id": "multi-03",
+      "ranked": [
+        "FAQ001",
+        "PER001",
+        "EXP001",
+        "FAQ004",
+        "SK004"
+      ]
+    },
+    {
+      "id": "typo-01",
+      "ranked": [
+        "FAQ007",
+        "PRJ008",
+        "ART004",
+        "SK004",
+        "SOC001"
+      ]
+    },
+    {
+      "id": "typo-02",
+      "ranked": [
+        "FAQ002",
+        "PRJ001"
+      ]
+    },
+    {
+      "id": "typo-03",
+      "ranked": [
+        "PRJ006",
+        "SOC005",
+        "SK001"
+      ]
+    },
+    {
+      "id": "follow-01",
+      "ranked": [
+        "SK005",
+        "EXP001",
+        "FAQ002",
+        "PRJ007",
+        "PRJ004"
+      ]
+    },
+    {
+      "id": "follow-02",
+      "ranked": []
+    },
+    {
+      "id": "follow-03",
+      "ranked": [
+        "PRJ007"
+      ]
+    },
+    {
+      "id": "neg-01",
+      "ranked": [
+        "ART003",
+        "SOC001",
+        "ART001",
+        "SOC002",
+        "PER001"
+      ]
+    },
+    {
+      "id": "neg-02",
+      "ranked": [
+        "PER003",
+        "PER002",
+        "PER001",
+        "FAQ001",
+        "EXP001"
+      ]
+    },
+    {
+      "id": "neg-03",
+      "ranked": []
+    },
+    {
+      "id": "neg-04",
+      "ranked": [
+        "PER001",
+        "EXP002",
+        "FAQ001",
+        "EXP001",
+        "PER003"
+      ]
+    },
+    {
+      "id": "neg-05",
+      "ranked": []
+    },
+    {
+      "id": "neg-06",
+      "ranked": []
+    }
+  ]
+}

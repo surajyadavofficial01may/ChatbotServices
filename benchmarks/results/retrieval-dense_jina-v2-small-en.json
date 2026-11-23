@@ -1,0 +1,604 @@
+{
+  "hit@5": 0.8889,
+  "recall@5": 0.7459,
+  "precision@5": 0.3022,
+  "mrr": 0.7804,
+  "ndcg@5": 0.7174,
+  "recall@10": 0.7459,
+  "by_type": {
+    "exact": {
+      "hit@5": 1.0,
+      "recall@5": 0.9271,
+      "precision@5": 0.3625,
+      "mrr": 0.9583,
+      "ndcg@5": 0.9009
+    },
+    "semantic": {
+      "hit@5": 0.8667,
+      "recall@5": 0.7167,
+      "precision@5": 0.2267,
+      "mrr": 0.7389,
+      "ndcg@5": 0.6809
+    },
+    "list": {
+      "hit@5": 0.8,
+      "recall@5": 0.3967,
+      "precision@5": 0.28,
+      "mrr": 0.54,
+      "ndcg@5": 0.3799
+    },
+    "multi": {
+      "hit@5": 0.6667,
+      "recall@5": 0.5556,
+      "precision@5": 0.3333,
+      "mrr": 0.6667,
+      "ndcg@5": 0.5885
+    },
+    "typo": {
+      "hit@5": 1.0,
+      "recall@5": 1.0,
+      "precision@5": 0.4667,
+      "mrr": 1.0,
+      "ndcg@5": 1.0
+    },
+    "followup": {
+      "hit@5": 0.6667,
+      "recall@5": 0.4444,
+      "precision@5": 0.2,
+      "mrr": 0.3333,
+      "ndcg@5": 0.3298
+    }
+  },
+  "negative_abstention_rate": 0.0,
+  "positive_false_rejection_rate": 0.0,
+  "balanced_accuracy": 0.5,
+  "config": "dense:jina-v2-small-en",
+  "overrides": {
+    "content_only": false,
+    "routing": false,
+    "embedding_query_prefix": null,
+    "sparse_model": "",
+    "reranker_model": "",
+    "retrieval_score_threshold": -1.0,
+    "retrieval_list_top_k": 5,
+    "embedding_model": "jinaai/jina-embeddings-v2-small-en"
+  },
+  "index_seconds": 2.24,
+  "latency_ms": {
+    "embed_ms": {
+      "mean": 3.11,
+      "p95": 3.5
+    },
+    "search_ms": {
+      "mean": 0.9,
+      "p95": 1.1
+    },
+    "rerank_ms": {
+      "mean": 0.0,
+      "p95": 0.0
+    }
+  },
+  "rss_mb": {
+    "process": 578.6,
+    "models_and_index": 472.9
+  },
+  "calibration": {
+    "best_threshold": 0.808,
+    "negative_abstention": 1.0,
+    "positive_false_rejection": 0.1556,
+    "hit@5_at_best": 0.7333,
+    "note": "6 negatives — indicative, not a tuned guarantee"
+  },
+  "cases": [
+    {
+      "id": "fact-01",
+      "ranked": [
+        "FAQ007",
+        "ART004",
+        "PRJ008",
+        "SOC001",
+        "EXP001"
+      ]
+    },
+    {
+      "id": "fact-02",
+      "ranked": [
+        "FAQ002",
+        "PRJ001",
+        "SK002",
+        "PRJ004",
+        "PRJ003"
+      ]
+    },
+    {
+      "id": "fact-03",
+      "ranked": [
+        "FAQ001",
+        "FAQ003",
+        "PER003",
+        "PER001",
+        "FAQ004"
+      ]
+    },
+    {
+      "id": "fact-04",
+      "ranked": [
+        "FAQ001",
+        "ART001",
+        "PER001",
+        "ART003",
+        "EXP002"
+      ]
+    },
+    {
+      "id": "fact-05",
+      "ranked": [
+        "PER001",
+        "EXP002",
+        "FAQ001",
+        "PER003",
+        "EXP001"
+      ]
+    },
+    {
+      "id": "fact-06",
+      "ranked": [
+        "EXP002",
+        "FAQ001",
+        "PER001",
+        "FAQ005",
+        "FAQ004"
+      ]
+    },
+    {
+      "id": "fact-07",
+      "ranked": [
+        "PRJ006",
+        "SOC005",
+        "SOC001",
+        "PRJ002",
+        "ART002"
+      ]
+    },
+    {
+      "id": "fact-08",
+      "ranked": [
+        "PRJ007",
+        "SK002",
+        "PRJ004",
+        "FAQ003",
+        "PRJ003"
+      ]
+    },
+    {
+      "id": "fact-09",
+      "ranked": [
+        "PRJ005",
+        "SK003",
+        "PRJ002",
+        "SOC001",
+        "ART002"
+      ]
+    },
+    {
+      "id": "fact-10",
+      "ranked": [
+        "PRJ004",
+        "EXP002",
+        "ART002",
+        "ART003",
+        "SOC003"
+      ]
+    },
+    {
+      "id": "fact-11",
+      "ranked": [
+        "PRJ003",
+        "FAQ004",
+        "EXP001",
+        "ART002",
+        "SOC001"
+      ]
+    },
+    {
+      "id": "fact-12",
+      "ranked": [
+        "SK005",
+        "FAQ003",
+        "EXP001",
+        "FAQ002",
+        "PRJ003"
+      ]
+    },
+    {
+      "id": "fact-13",
+      "ranked": [
+        "SOC004",
+        "FAQ001",
+        "PER001",
+        "SOC001",
+        "EXP002"
+      ]
+    },
+    {
+      "id": "fact-14",
+      "ranked": [
+        "FAQ006",
+        "PER003",
+        "EXP002",
+        "SOC001",
+        "SOC003"
+      ]
+    },
+    {
+      "id": "fact-15",
+      "ranked": [
+        "SOC001",
+        "SOC003",
+        "FAQ001",
+        "SOC002",
+        "PER001"
+      ]
+    },
+    {
+      "id": "fact-16",
+      "ranked": [
+        "SOC002",
+        "ART002",
+        "ART001",
+        "SOC001",
+        "SOC004"
+      ]
+    },
+    {
+      "id": "fact-17",
+      "ranked": [
+        "FAQ003",
+        "FAQ001",
+        "PER003",
+        "FAQ005",
+        "PER001"
+      ]
+    },
+    {
+      "id": "fact-18",
+      "ranked": [
+        "FAQ005",
+        "FAQ003",
+        "FAQ001",
+        "EXP002",
+        "PER003"
+      ]
+    },
+    {
+      "id": "fact-19",
+      "ranked": [
+        "FAQ002",
+        "PRJ001",
+        "EXP001",
+        "FAQ003",
+        "SK002"
+      ]
+    },
+    {
+      "id": "fact-20",
+      "ranked": [
+        "SK005",
+        "EXP001",
+        "SK002",
+        "SK004",
+        "FAQ003"
+      ]
+    },
+    {
+      "id": "sem-01",
+      "ranked": [
+        "FAQ003",
+        "EXP002",
+        "PER003",
+        "FAQ002",
+        "FAQ005"
+      ]
+    },
+    {
+      "id": "sem-02",
+      "ranked": [
+        "PRJ007",
+        "ART002",
+        "EXP002",
+        "SK006",
+        "PER003"
+      ]
+    },
+    {
+      "id": "sem-03",
+      "ranked": [
+        "SK006",
+        "PER002",
+        "FAQ001",
+        "PER001",
+        "PER003"
+      ]
+    },
+    {
+      "id": "sem-04",
+      "ranked": [
+        "FAQ003",
+        "FAQ005",
+        "SK004",
+        "EXP001",
+        "EXP002"
+      ]
+    },
+    {
+      "id": "sem-05",
+      "ranked": [
+        "SK005",
+        "EXP001",
+        "EXP002",
+        "FAQ003",
+        "FAQ001"
+      ]
+    },
+    {
+      "id": "sem-06",
+      "ranked": [
+        "FAQ005",
+        "FAQ003",
+        "FAQ004",
+        "FAQ001",
+        "EXP002"
+      ]
+    },
+    {
+      "id": "sem-07",
+      "ranked": [
+        "ART001",
+        "PRJ002",
+        "ART003",
+        "FAQ005",
+        "FAQ001"
+      ]
+    },
+    {
+      "id": "sem-08",
+      "ranked": [
+        "ART003",
+        "PER001",
+        "FAQ001",
+        "PER003",
+        "SOC001"
+      ]
+    },
+    {
+      "id": "sem-09",
+      "ranked": [
+        "SOC003",
+        "ART004",
+        "SK002",
+        "PRJ008",
+        "FAQ003"
+      ]
+    },
+    {
+      "id": "sem-10",
+      "ranked": [
+        "SK002",
+        "FAQ003",
+        "SK004",
+        "FAQ002",
+        "SK006"
+      ]
+    },
+    {
+      "id": "sem-11",
+      "ranked": [
+        "PRJ005",
+        "SOC003",
+        "FAQ003",
+        "PER001",
+        "EXP002"
+      ]
+    },
+    {
+      "id": "list-01",
+      "ranked": [
+        "EXP002",
+        "PER001",
+        "SOC003",
+        "FAQ001",
+        "FAQ003"
+      ]
+    },
+    {
+      "id": "list-02",
+      "ranked": [
+        "FAQ003",
+        "FAQ001",
+        "FAQ005",
+        "FAQ004",
+        "ART001"
+      ]
+    },
+    {
+      "id": "list-03",
+      "ranked": [
+        "FAQ003",
+        "SK005",
+        "FAQ001",
+        "PER003",
+        "SK002"
+      ]
+    },
+    {
+      "id": "list-04",
+      "ranked": [
+        "EXP002",
+        "PER001",
+        "FAQ001",
+        "PER003",
+        "EXP001"
+      ]
+    },
+    {
+      "id": "list-05",
+      "ranked": [
+        "SOC003",
+        "SOC001",
+        "PER003",
+        "FAQ001",
+        "FAQ003"
+      ]
+    },
+    {
+      "id": "multi-01",
+      "ranked": [
+        "FAQ004",
+        "PRJ003",
+        "EXP001",
+        "FAQ005",
+        "FAQ003"
+      ]
+    },
+    {
+      "id": "multi-02",
+      "ranked": [
+        "FAQ003",
+        "SOC003",
+        "PRJ002",
+        "SOC001",
+        "SK005"
+      ]
+    },
+    {
+      "id": "multi-03",
+      "ranked": [
+        "EXP001",
+        "FAQ004",
+        "FAQ001",
+        "SK004",
+        "PER001"
+      ]
+    },
+    {
+      "id": "typo-01",
+      "ranked": [
+        "FAQ007",
+        "ART004",
+        "PRJ008",
+        "SOC001",
+        "SOC003"
+      ]
+    },
+    {
+      "id": "typo-02",
+      "ranked": [
+        "FAQ002",
+        "PRJ001",
+        "FAQ003",
+        "SK002",
+        "SK006"
+      ]
+    },
+    {
+      "id": "typo-03",
+      "ranked": [
+        "SOC005",
+        "PRJ006",
+        "SOC001",
+        "PRJ008",
+        "SK001"
+      ]
+    },
+    {
+      "id": "follow-01",
+      "ranked": [
+        "SK004",
+        "EXP001",
+        "SK005",
+        "FAQ003",
+        "SK001"
+      ]
+    },
+    {
+      "id": "follow-02",
+      "ranked": [
+        "SK003",
+        "EXP001",
+        "SK006",
+        "SK005",
+        "SK004"
+      ]
+    },
+    {
+      "id": "follow-03",
+      "ranked": [
+        "FAQ003",
+        "SK006",
+        "PRJ007",
+        "SK004",
+        "FAQ002"
+      ]
+    },
+    {
+      "id": "neg-01",
+      "ranked": [
+        "FAQ005",
+        "ART003",
+        "FAQ001",
+        "FAQ003",
+        "PER001"
+      ]
+    },
+    {
+      "id": "neg-02",
+      "ranked": [
+        "EXP002",
+        "PER003",
+        "FAQ001",
+        "FAQ003",
+        "FAQ005"
+      ]
+    },
+    {
+      "id": "neg-03",
+      "ranked": [
+        "EXP002",
+        "PRJ005",
+        "PRJ004",
+        "ART003",
+        "FAQ003"
+      ]
+    },
+    {
+      "id": "neg-04",
+      "ranked": [
+        "PER001",
+        "EXP002",
+        "FAQ001",
+        "PER003",
+        "ART003"
+      ]
+    },
+    {
+      "id": "neg-05",
+      "ranked": [
+        "SOC005",
+        "PRJ006",
+        "SK001",
+        "PRJ002",
+        "ART004"
+      ]
+    },
+    {
+      "id": "neg-06",
+      "ranked": [
+        "PRJ001",
+        "PRJ008",
+        "ART004",
+        "PRJ006",
+        "FAQ002"
+      ]
+    }
+  ]
+}
