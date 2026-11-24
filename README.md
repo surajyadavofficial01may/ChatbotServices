@@ -1,7 +1,6 @@
 # AI Knowledge Assistant
 
 <!-- Replace OWNER/REPO in the CI badge with your GitHub repository. -->
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)
 ![Qdrant](https://img.shields.io/badge/vector%20DB-Qdrant-dc244c)
