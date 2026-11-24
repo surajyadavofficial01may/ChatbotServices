@@ -9,6 +9,7 @@ venv/
 .pytest_cache/
 .ruff_cache/
 .fastembed_cache/
+benchmarks/results/
 .coverage
 htmlcov/
 

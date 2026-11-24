@@ -1,5 +1,7 @@
 # RAG Architecture Assessment
 
+> **Context:** engineering notes from this project's first deployment, a single-person portfolio assistant (the owner is called "Alex" here). That corpus and its labels are private and not shipped; the shipped benchmark (`python -m benchmarks.evaluate`) runs on `data/sample_entries.json`. Re-run on that private corpus, the current generic pipeline reproduces the final production numbers in [rag-improvement-roadmap.md](rag-improvement-roadmap.md) exactly.
+
 ## The system being optimised
 
 A single-tenant chatbot for one public portfolio. That shapes every decision below.
@@ -36,7 +38,7 @@ loop, blocking every chat request while it embedded.
 | Embedding | bge-small-en-v1.5, 384-d, `EMBEDDING_DIM = 384` hardcoded | Changing the model would have broken indexing |
 | Embedded text | `content` only | Titles unused — FAQ titles are literally the questions |
 | Query embedding | No BGE retrieval instruction | Recommended for short query -> passage search |
-| Retrieval | Dense cosine only | Misses rare identifiers (DB-Compare) |
+| Retrieval | Dense cosine only | Misses rare identifiers (Tidewatch) |
 | Metadata filtering | `category` filter existed, never used | — |
 | Reranking | None | — |
 | Evidence gate | Cosine >= 0.45 | Rejected 0% of off-topic questions (see baseline) |
@@ -54,11 +56,11 @@ loop, blocking every chat request while it embedded.
 1. **List questions (recall 0.36):** with content-only embeddings and one global
    top-5, "projects" questions matched bios and skill summaries, whose text
    says "built projects", rather than the project records themselves.
-2. **Exact identifiers:** dense embeddings blur rare tokens like "DB-Compare";
+2. **Exact identifiers:** dense embeddings blur rare tokens like "Tidewatch";
    nothing lexical backed them up.
 3. **No out-of-scope protection:** every record names the owner, so any
    personal question scores 0.59–0.70 cosine. A cosine floor cannot separate
-   "about Suraj and answerable" from "about Suraj but not in the knowledge base".
+   "about Alex and answerable" from "about Alex but not in the knowledge base".
    Only a model that reads query and passage together (a cross-encoder) can.
 4. **Follow-ups:** no history, so references had nothing to resolve against.
 5. **Source noise:** sources were "everything retrieved", not "what the answer used".

@@ -25,7 +25,11 @@ class ExternalServiceError(Exception):
 
     Attributes:
         retry_after: Seconds the client should wait before retrying.
+        expose: Subclasses whose messages are written to be safe and actionable (no
+            URLs, keys or payloads) set this so the client sees the message itself.
     """
+
+    expose = False
 
     def __init__(self, message: str, retry_after: int = DEFAULT_RETRY_AFTER_SECONDS) -> None:
         super().__init__(message)
@@ -49,9 +53,8 @@ def _error(status_code: int, message: str, headers: dict[str, str] | None = None
 async def _external_service_error(request: Request, exc: ExternalServiceError) -> JSONResponse:
     """Translate a dependency failure into 503 + Retry-After (details stay in the log)."""
     logger.error("Dependency unavailable on %s: %s: %s", request.url.path, type(exc).__name__, exc)
-    return _error(
-        503, "The chatbot is temporarily unavailable. Please try again shortly.", {"Retry-After": str(exc.retry_after)}
-    )
+    message = str(exc) if exc.expose else "The service is temporarily unavailable. Please try again shortly."
+    return _error(503, message, {"Retry-After": str(exc.retry_after)})
 
 
 async def _qdrant_client_error(request: Request, exc: Exception) -> JSONResponse:

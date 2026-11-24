@@ -1,13 +1,13 @@
 # Contributing
 
-Thanks for helping improve the Portfolio RAG Chatbot. This guide gets you from fork
+Thanks for helping improve the AI Knowledge Assistant. This guide gets you from fork
 to merged pull request.
 
 ## Ground rules
 
 - Be kind and constructive in issues and reviews.
 - Keep pull requests focused: one bug fix or feature per PR.
-- Never commit secrets. `.env` is git-ignored; use `.env.example` for new variables.
+- Never commit secrets or personal data. `.env` and `private/` are git-ignored; use `.env.example` for new variables.
 - Retrieval or prompt changes need benchmark numbers (see below) — "feels better" isn't enough.
 
 ## Getting set up
@@ -61,11 +61,13 @@ Paste the before/after benchmark line into your PR description.
 - **Logging, not `print()`**, in application code — and never log secrets, question text or retrieved content.
 - **External calls raise `ExternalServiceError` subclasses** (see `app/core/exceptions.py`); the central handler turns them into `503` + `Retry-After`. Don't add ad-hoc `try/except` in routers.
 - **New settings** go in `app/core/config.py`, `.env.example` and the README configuration table.
+- **New columns** go in `app/models/knowledge.py` (the admin grid adds them automatically) and `supabase/schema.sql`.
+- **Admin UI** (`app/web/`) stays build-free: plain ES module, render user data with `textContent`, never `innerHTML`.
 - Prefer small, boring code. Add an abstraction only when a second real use appears.
 
 ## Tests
 
-- Put tests in the matching file: `tests/test_api_chat.py` / `tests/test_api_sync.py` for endpoints,
+- Put tests in the matching file: `tests/test_api_chat.py` / `tests/test_api_sync.py` / `tests/test_admin.py` for endpoints,
   `tests/test_services.py` for service logic (add to that service's section), `tests/test_benchmarks.py`
   for metrics and the quality gate. See [CODEBASE_MAP.md](CODEBASE_MAP.md) for where code belongs.
 - Use the `fake_models` / `indexed_client` fixtures from `tests/conftest.py` for anything that embeds or searches — they keep tests fast and offline.

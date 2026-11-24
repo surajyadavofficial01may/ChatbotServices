@@ -121,11 +121,10 @@ def percentile(values: list[float], pct: float) -> float:
     return ordered[index]
 
 
-REFUSAL_MARKER = "not available in the portfolio knowledge base"
 DECLINE = re.compile(r"\b(can(?:'|’)?t|cannot|won(?:'|’)?t) (comply|help with that|assist with that)", re.I)
 
 
-def is_refusal(answer: str) -> bool:
+def is_refusal(answer: str, no_answer_message: str | None = None) -> bool:
     """Return True for a pure "not available" reply or an explicit decline.
 
     Both mean nothing was answered from outside the knowledge base. Length-bounded
@@ -133,17 +132,23 @@ def is_refusal(answer: str) -> bool:
 
     Args:
         answer: Generated answer.
+        no_answer_message: The refusal sentence (defaults to `NO_ANSWER_MESSAGE`).
 
     Returns:
         Whether the answer is a refusal.
     """
-    return len(answer) < 250 and (REFUSAL_MARKER in answer.lower() or bool(DECLINE.search(answer)))
+    if no_answer_message is None:
+        from app.core.config import settings
+
+        no_answer_message = settings.no_answer_message
+    marker = no_answer_message.strip().rstrip(".").lower()
+    return len(answer) < 250 and (marker in answer.lower() or bool(DECLINE.search(answer)))
 
 
 def fact_recall(answer: str, must_include: list[str]) -> float:
     """Return the share of expected facts present in the answer.
 
-    Matching ignores case and whitespace, so "81 %" or "Jira Fixer" written with a
+    Matching ignores case and whitespace, so "81 %" or "Acme Notes" written with a
     narrow no-break space (common in LLM output) still count.
 
     Args:

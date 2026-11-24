@@ -1,11 +1,16 @@
-"""Service-layer tests, one section per service."""
+"""Service-layer tests, one section per service. Fully offline: fake embedder, in-memory Qdrant, stubbed HTTP."""
 
+import asyncio
 import copy
+import json
 import os
+import re
 import threading
 import time
+import uuid
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import httpx
 import numpy as np
@@ -13,152 +18,272 @@ import pytest
 from qdrant_client import QdrantClient
 
 from app.core.config import settings
-from app.services import data_fetcher, embedding_service, llm_service, qdrant_service, rerank_service, retrieval_service
-from app.services.data_fetcher import (
-    REQUIRED_CATEGORIES,
-    Document,
-    KnowledgeValidationError,
-    SupabaseServiceError,
-    build_documents,
+from app.models.knowledge import CATEGORIES, KnowledgeEntryIn
+from app.services import (
+    chunking,
+    embedding_service,
+    llm_service,
+    qdrant_service,
+    rerank_service,
+    retrieval_service,
+    supabase_repository,
 )
+from app.services.chunking import Chunk, build_chunks, split_text
 from app.services.embedding_service import EmbeddingServiceError
-from app.services.llm_service import ANSWER_SYSTEM, NO_INFO_ANSWER, LLMServiceError
-from app.services.query_service import QueryPlan, needs_rewrite, plan_query
+from app.services.llm_service import LLMServiceError, answer_system_prompt
+from app.services.query_service import QueryPlan, needs_rewrite, plan_query, route_categories
 from app.services.retrieval_service import Candidate, apply_citations, build_context, fuse, retrieve, select
-from app.services.sync_service import index_documents
-from tests.conftest import SAMPLE_RECORDS
+from app.services.supabase_repository import DuplicateEntryError, SupabaseRepository, SupabaseServiceError
+from app.services.sync_service import index_chunks
+from tests.conftest import SAMPLE_ENTRIES, sample_entries
+
+ROOT = Path(__file__).resolve().parent.parent
+NO_ANSWER = "That information is not available in the knowledge base."
 
 # ----------------------------------------------------------------------------
-# data_fetcher: Supabase download
+# models: KnowledgeEntry schema
 # ----------------------------------------------------------------------------
 
 
-def _configure(monkeypatch):
-    monkeypatch.setattr(settings, "supabase_url", "https://example.supabase.co")
-    monkeypatch.setattr(settings, "supabase_secret_key", "sb_secret_test")
+def _entry(entry_id="E", category="Projects", **fields):
+    return KnowledgeEntryIn.model_validate({"id": entry_id, "category": category, "content": "C", **fields})
 
 
-def test_requires_url_and_key(monkeypatch):
-    monkeypatch.setattr(settings, "supabase_url", "")
-    monkeypatch.setattr(settings, "supabase_secret_key", "")
+def test_entry_defaults_match_the_table_defaults():
+    entry = _entry(url=None)
+    assert (entry.title, entry.url, entry.active, entry.sort_order) == ("", "", True, 0)
+
+
+def test_rows_from_the_tab_views_and_spreadsheets_are_accepted():
+    entry = KnowledgeEntryIn.model_validate(
+        {
+            "id": "PRJ001",
+            "category": "Projects",
+            "title": "T",
+            "content": "C",
+            "url": "https://x.dev",
+            "active": "FALSE",
+        }
+    )
+    assert entry.url == "https://x.dev" and entry.active is False
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("id", "has space"),
+        ("id", ""),
+        ("category", "General"),  # only the seven tabs
+        ("url", "javascript:alert(1)"),
+        ("content", ""),
+        ("title", "x" * 201),
+        ("sort_order", -1),
+    ],
+)
+def test_invalid_entries_are_rejected(field, value):
+    with pytest.raises(ValueError):
+        _entry(**{field: value})
+
+
+def test_id_and_category_are_required():
+    with pytest.raises(ValueError):
+        KnowledgeEntryIn.model_validate({"content": "C"})
+
+
+def test_schema_drives_the_admin_grid():
+    schema = KnowledgeEntryIn.model_json_schema()
+    assert list(schema["properties"]) == ["id", "category", "title", "content", "url", "active", "sort_order"]
+    assert schema["required"] == ["id", "category", "content"]
+    category = schema["properties"]["category"]
+    assert category["enum"] == list(CATEGORIES) and category["ui"] == "tabs"
+    assert category["id_prefixes"]["Projects"] == "PRJ" and set(category["id_prefixes"]) == set(CATEGORIES)
+    assert schema["properties"]["content"]["ui"] == "textarea"
+
+
+def test_categories_match_the_sql_check_constraint():
+    sql = (ROOT / "supabase" / "schema.sql").read_text(encoding="utf-8")
+    check = sql[sql.index("category IN (") : sql.index(")", sql.index("category IN ("))]
+    assert re.findall(r"'([A-Za-z_]+)'", check) == list(CATEGORIES)
+    for category in CATEGORIES:
+        assert f'VIEW public."{category}" WITH (security_invoker = true)' in sql
+
+
+def test_shipped_sample_dataset_is_valid():
+    rows = json.loads((ROOT / "data" / "sample_entries.json").read_text(encoding="utf-8"))
+    entries = [KnowledgeEntryIn.model_validate(row) for row in rows]
+    assert len({e.id for e in entries}) == len(entries)
+    assert {e.category for e in entries} == set(CATEGORIES)  # every tab has an example
+    assert any(not e.active for e in entries)  # demonstrates exclusion
+    assert any(c.chunk_count > 1 for c in build_chunks(entries))  # demonstrates chunking
+
+
+# ----------------------------------------------------------------------------
+# chunking
+# ----------------------------------------------------------------------------
+
+
+def test_short_content_is_one_chunk_with_whitespace_collapsed():
+    assert split_text("  a \n\n b  ", 100) == ["a b"]
+
+
+def test_long_content_splits_on_sentences_within_the_limit_and_loses_nothing():
+    text = " ".join(f"Sentence number {i} is here." for i in range(200))
+    chunks = split_text(text, 300)
+    assert len(chunks) > 1 and all(len(c) <= 300 for c in chunks)
+    assert " ".join(chunks).split() == text.split()
+    assert all(c.endswith(".") for c in chunks)  # cut between sentences, not mid-sentence
+
+
+def test_chunks_are_evenly_sized_not_a_tiny_tail():
+    chunks = split_text("A" * 50 + ". " + "B" * 50 + ". " + "C" * 50 + ".", 110)
+    assert len(chunks) == 2 and min(len(c) for c in chunks) > 40
+
+
+def test_an_unbreakable_word_is_hard_cut():
+    assert [len(c) for c in split_text("x" * 250, 100)] == [100, 100, 50]
+
+
+def test_inactive_and_duplicate_entries_are_dropped():
+    entries = sample_entries() + [_entry("PER001", title="dup"), _entry("OFF", active=False)]
+    ids = {c.entry_id for c in build_chunks(entries)}
+    assert "OFF" not in ids and len(ids) == len(SAMPLE_ENTRIES)
+
+
+def test_blank_title_falls_back_to_the_id():
+    assert build_chunks([_entry("PRJ009")])[0].title == "PRJ009"
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [("title", "New"), ("category", "Articles"), ("content", "Other"), ("url", "https://n.dev")],
+)
+def test_any_indexed_field_changes_the_entry_hash(field, value):
+    base = _entry(title="T")
+    changed = base.model_copy(update={field: value})
+    assert build_chunks([base])[0].entry_hash != build_chunks([changed])[0].entry_hash
+
+
+def test_reordering_rows_never_re_embeds():
+    base = _entry(title="T", sort_order=1)
+    assert build_chunks([base])[0].entry_hash == build_chunks([base.model_copy(update={"sort_order": 9})])[0].entry_hash
+
+
+def test_chunk_size_is_part_of_the_hash():
+    entry = _entry(title="T")
+    assert build_chunks([entry], 100)[0].entry_hash != build_chunks([entry], 200)[0].entry_hash
+
+
+def test_embedding_text_carries_entry_context():
+    chunk = build_chunks([_entry(category="Work_Experience", title="Engineer at Acme", content="Built APIs.")])[0]
+    assert chunking.embedding_text(chunk) == "Work Experience: Engineer at Acme\nBuilt APIs."
+
+
+# ----------------------------------------------------------------------------
+# supabase_repository (httpx MockTransport)
+# ----------------------------------------------------------------------------
+
+
+def _configure_supabase(monkeypatch):
+    monkeypatch.setattr(settings, "supabase_url", "https://example.supabase.co/")
+    monkeypatch.setattr(settings, "supabase_service_role_key", "sb_secret_test")
+
+
+def _repo(handler):
+    return SupabaseRepository(transport=httpx.MockTransport(handler))
+
+
+def _row(entry_id, **extra):
+    return {
+        "id": entry_id,
+        "category": "Projects",
+        "title": "T",
+        "content": "C",
+        "updated_at": "2026-01-01T00:00:00Z",
+        **extra,
+    }
+
+
+def test_repository_requires_configuration():
     with pytest.raises(SupabaseServiceError, match="SUPABASE_URL"):
-        data_fetcher.fetch_knowledge_records()
+        asyncio.run(_repo(lambda r: httpx.Response(200, json=[])).list_entries())
 
 
-def test_fetch_records_success(monkeypatch):
-    _configure(monkeypatch)
-    fake_response = MagicMock()
-    fake_response.raise_for_status.return_value = None
-    fake_response.json.return_value = {"records": [{"id": "PER001", "category": "Personal_Details"}]}
+def test_list_entries_pages_past_the_row_cap(monkeypatch):
+    _configure_supabase(monkeypatch)
+    monkeypatch.setattr(supabase_repository, "PAGE_SIZE", 2)
+    rows = [_row(f"E{i}") for i in range(5)]
+    seen = []
 
-    with patch("app.services.data_fetcher.httpx.get", return_value=fake_response) as mock_get:
-        records = data_fetcher.fetch_knowledge_records()
+    def handler(request):
+        seen.append(request)
+        offset, limit = int(request.url.params["offset"]), int(request.url.params["limit"])
+        return httpx.Response(200, json=rows[offset : offset + limit])
 
-    assert records == [{"id": "PER001", "category": "Personal_Details"}]
-    called_url = mock_get.call_args.args[0]
-    assert (
-        called_url
-        == "https://example.supabase.co/storage/v1/object/portfolio-knowledge-base/Portfolio_Knowledge_Base.json"
-    )
-    called_headers = mock_get.call_args.kwargs["headers"]
-    assert called_headers["apikey"] == "sb_secret_test"
-
-
-def test_missing_records_key_raises(monkeypatch):
-    _configure(monkeypatch)
-    fake_response = MagicMock()
-    fake_response.raise_for_status.return_value = None
-    fake_response.json.return_value = {"title": "no records key here"}
-
-    with patch("app.services.data_fetcher.httpx.get", return_value=fake_response):
-        with pytest.raises(SupabaseServiceError, match="no 'records' array"):
-            data_fetcher.fetch_knowledge_records()
+    entries = asyncio.run(_repo(handler).list_entries(active_only=True))
+    assert [e.id for e in entries] == ["E0", "E1", "E2", "E3", "E4"] and len(seen) == 3
+    assert seen[0].url.path == "/rest/v1/portfolio_knowledge_base"
+    assert seen[0].url.params["active"] == "eq.true"
+    assert seen[0].headers["apikey"] == "sb_secret_test"
 
 
-def test_http_error_is_wrapped(monkeypatch):
-    _configure(monkeypatch)
-    import httpx
+def test_create_sends_writable_columns_and_maps_conflict(monkeypatch):
+    _configure_supabase(monkeypatch)
+    sent = {}
 
-    with patch("app.services.data_fetcher.httpx.get", side_effect=httpx.ConnectError("boom")):
-        with pytest.raises(SupabaseServiceError, match="Supabase Storage request failed"):
-            data_fetcher.fetch_knowledge_records()
+    def handler(request):
+        sent["body"] = json.loads(request.content)
+        sent["prefer"] = request.headers["prefer"]
+        return httpx.Response(201, json=[_row("E1")])
 
+    created = asyncio.run(_repo(handler).create_entry(_entry("E1", title="T")))
+    assert created.id == "E1" and sent["prefer"] == "return=representation"
+    assert set(sent["body"]) == {"id", "category", "title", "content", "url", "active", "sort_order"}
 
-# ----------------------------------------------------------------------------
-# data_fetcher: record validation and documents
-# ----------------------------------------------------------------------------
-
-
-def _record(category, rid, content="some content", title=None, url=None, active=True):
-    return {"id": rid, "category": category, "title": title, "content": content, "url": url, "active": active}
-
-
-def _full_records(overrides: list[dict] | None = None) -> list[dict]:
-    records = [_record(cat, f"{cat}-1") for cat in REQUIRED_CATEGORIES]
-    if overrides:
-        records.extend(overrides)
-    return records
+    with pytest.raises(DuplicateEntryError):
+        asyncio.run(_repo(lambda r: httpx.Response(409, json={"code": "23505"})).create_entry(created))
 
 
-def test_valid_records_produce_one_document_per_category():
-    docs = build_documents(_full_records())
-    assert len(docs) == len(REQUIRED_CATEGORIES)
-    assert all(d.content_hash for d in docs)
+def test_update_never_sends_the_id_and_reports_missing_rows(monkeypatch):
+    _configure_supabase(monkeypatch)
+    sent = {}
+
+    def handler(request):
+        sent["filter"] = request.url.params["id"]
+        sent["body"] = json.loads(request.content)
+        return httpx.Response(200, json=[])
+
+    result = asyncio.run(_repo(handler).update_entry("E1", _entry("OTHER", title="T")))
+    assert result is None and sent["filter"] == "eq.E1" and "id" not in sent["body"]
 
 
-def test_missing_category_raises_validation_error():
-    records = [r for r in _full_records() if r["category"] != REQUIRED_CATEGORIES[0]]
-    with pytest.raises(KnowledgeValidationError, match="missing required categor"):
-        build_documents(records)
+def test_bulk_upsert_merges_duplicates(monkeypatch):
+    _configure_supabase(monkeypatch)
+    sent = {}
+
+    def handler(request):
+        sent["prefer"] = request.headers["prefer"]
+        return httpx.Response(201, json=json.loads(request.content))
+
+    count = asyncio.run(_repo(handler).upsert_entries(sample_entries()))
+    assert count == len(SAMPLE_ENTRIES) and "resolution=merge-duplicates" in sent["prefer"]
 
 
-def test_empty_content_rows_are_skipped():
-    records = _full_records(overrides=[_record("FAQs", "faq-empty", content="")])
-    docs = build_documents(records)
-    assert not any(d.id == "faq-empty" for d in docs)
+def test_missing_table_error_explains_the_fix(monkeypatch):
+    _configure_supabase(monkeypatch)
+    reply = httpx.Response(404, json={"code": "PGRST205", "message": "Could not find the table"})
+    with pytest.raises(SupabaseServiceError, match="supabase/schema.sql"):
+        asyncio.run(_repo(lambda r: reply).list_entries())
 
 
-def test_inactive_rows_are_skipped():
-    records = _full_records(overrides=[_record("FAQs", "faq-inactive", active=False)])
-    docs = build_documents(records)
-    assert not any(d.id == "faq-inactive" for d in docs)
+def test_network_errors_are_wrapped_without_details(monkeypatch):
+    _configure_supabase(monkeypatch)
 
+    def boom(request):
+        raise httpx.ConnectError("connection refused to https://example.supabase.co?apikey=secret")
 
-def test_duplicate_ids_are_deduplicated():
-    records = _full_records(
-        overrides=[
-            _record("FAQs", "dup-id", content="first"),
-            _record("FAQs", "dup-id", content="second"),
-        ]
-    )
-    docs = build_documents(records)
-    assert len([d for d in docs if d.id == "dup-id"]) == 1
-
-
-def test_missing_title_defaults_to_id():
-    records = _full_records(overrides=[_record("FAQs", "faq-no-title", title=None)])
-    docs = build_documents(records)
-    doc = next(d for d in docs if d.id == "faq-no-title")
-    assert doc.title == "faq-no-title"
-
-
-def test_changing_title_or_url_changes_the_hash_even_if_content_is_unchanged():
-    base = _record("FAQs", "faq-x", content="same content", title="Title A", url="https://a.com")
-    changed = _record("FAQs", "faq-x", content="same content", title="Title B", url="https://a.com")
-
-    doc_a = build_documents(_full_records(overrides=[base]))[-1]
-    doc_b = build_documents(_full_records(overrides=[changed]))[-1]
-
-    assert doc_a.content_hash != doc_b.content_hash
-
-
-def test_shipped_sample_knowledge_base_is_valid():
-    import json
-    from pathlib import Path
-
-    sample = Path(__file__).resolve().parent.parent / "examples" / "Portfolio_Knowledge_Base.sample.json"
-    docs = build_documents(json.loads(sample.read_text(encoding="utf-8"))["records"])
-    assert len(docs) == 9  # FAQ002 is inactive
+    with pytest.raises(SupabaseServiceError) as err:
+        asyncio.run(_repo(boom).list_entries())
+    assert "secret" not in str(err.value) and "ConnectError" in str(err.value)
 
 
 # ----------------------------------------------------------------------------
@@ -169,10 +294,8 @@ DIM = 4
 VERSION = "test-version"
 
 
-def _doc(doc_id: str, category: str = "Projects") -> Document:
-    return Document(
-        id=doc_id, category=category, title=doc_id, content=f"content {doc_id}", url=None, content_hash=f"hash-{doc_id}"
-    )
+def _chunk(entry_id: str, category: str = "Features", index: int = 0, count: int = 1) -> Chunk:
+    return Chunk(entry_id, index, count, category, entry_id, f"content {entry_id}", "", f"hash-{entry_id}")
 
 
 def _client() -> QdrantClient:
@@ -187,30 +310,55 @@ def _vec(i: int) -> list[float]:
 
 def test_upsert_then_query_finds_matching_vector():
     client = _client()
-    qdrant_service.upsert_documents(client, [_doc("proj-1")], [_vec(0)], None, VERSION)
+    qdrant_service.upsert_chunks(client, [_chunk("feat-1")], [_vec(0)], None, VERSION)
     results = qdrant_service.query_candidates(client, _vec(0), None, 1, VERSION, [])
-    assert results["dense"][0].payload["record_id"] == "proj-1"
+    assert results["dense"][0].payload["entry_id"] == "feat-1"
 
 
 def test_repeated_upsert_is_idempotent():
     client = _client()
     for _ in range(2):
-        qdrant_service.upsert_documents(client, [_doc("proj-1")], [_vec(0)], None, VERSION)
-    assert len(qdrant_service.fetch_existing_fingerprints(client)) == 1
+        qdrant_service.upsert_chunks(client, [_chunk("feat-1")], [_vec(0)], None, VERSION)
+    assert client.count(settings.qdrant_collection_name).count == 1
 
 
-def test_delete_removes_record():
+def test_delete_removes_every_chunk_of_an_entry():
     client = _client()
-    qdrant_service.upsert_documents(client, [_doc("proj-1")], [_vec(0)], None, VERSION)
-    qdrant_service.delete_by_record_ids(client, ["proj-1"])
-    assert qdrant_service.fetch_existing_fingerprints(client) == {}
+    chunks = [_chunk("long", index=i, count=3) for i in range(3)] + [_chunk("other")]
+    qdrant_service.upsert_chunks(client, chunks, [_vec(i % DIM) for i in range(4)], None, VERSION)
+    qdrant_service.delete_entries(client, ["long"])
+    assert set(qdrant_service.scan_index(client)[0]) == {"other"}
+
+
+def test_partially_indexed_entry_gets_an_empty_fingerprint():
+    client = _client()
+    qdrant_service.upsert_chunks(client, [_chunk("long", index=0, count=3)], [_vec(0)], None, VERSION)
+    assert qdrant_service.scan_index(client)[0] == {"long": ""}
 
 
 def test_category_retriever_only_returns_that_category():
     client = _client()
-    qdrant_service.upsert_documents(client, [_doc("proj-1"), _doc("faq-1", "FAQs")], [_vec(0), _vec(0)], None, VERSION)
+    qdrant_service.upsert_chunks(client, [_chunk("feat-1"), _chunk("faq-1", "FAQs")], [_vec(0), _vec(0)], None, VERSION)
     results = qdrant_service.query_candidates(client, _vec(0), None, 5, VERSION, ["FAQs"])
-    assert [p.payload["record_id"] for p in results["category:FAQs"]] == ["faq-1"]
+    assert [p.payload["entry_id"] for p in results["category:FAQs"]] == ["faq-1"]
+
+
+def test_categories_come_from_the_index_and_are_cached():
+    client = _client()
+    qdrant_service.upsert_chunks(
+        client, [_chunk("a", "Billing"), _chunk("b", "FAQs")], [_vec(0), _vec(1)], None, VERSION
+    )
+    assert sorted(qdrant_service.list_categories(client, VERSION)) == ["Billing", "FAQs"]
+    qdrant_service.upsert_chunks(client, [_chunk("c", "New")], [_vec(2)], None, VERSION)
+    assert "New" not in qdrant_service.list_categories(client, VERSION)  # cached
+    qdrant_service.clear_category_cache()
+    assert "New" in qdrant_service.list_categories(client, VERSION)
+
+
+def test_category_lookup_failure_never_fails_a_request():
+    broken = MagicMock()
+    broken.facet.side_effect = RuntimeError("down")
+    assert qdrant_service.list_categories(broken, VERSION) == []
 
 
 def test_matching_schema_is_left_alone():
@@ -236,8 +384,26 @@ def test_missing_payload_index_is_repaired_on_an_existing_collection():
     client = _existing_collection({"category": object()})
     assert qdrant_service.ensure_collection(client, DIM, with_sparse=False) is False
     created = [call.kwargs["field_name"] for call in client.create_payload_index.call_args_list]
-    assert created == ["embedding_version"]
+    assert created == ["embedding_version", "entry_id"]
     client.delete_collection.assert_not_called()
+
+
+def test_points_from_before_chunking_are_removed_by_the_next_sync(fake_models):
+    from qdrant_client.http import models as qmodels
+
+    client = QdrantClient(":memory:")
+    _index(client, SAMPLE_ENTRIES)
+    legacy = qmodels.PointStruct(
+        id=str(uuid.uuid4()),
+        vector={qdrant_service.DENSE: [1.0] * 32},
+        payload={"record_id": "OLD001", "content": "old one-point-per-record layout"},
+    )
+    client.upsert(settings.qdrant_collection_name, points=[legacy])
+    assert qdrant_service.scan_index(client)[1] == [legacy.id]
+
+    report = _index(client, SAMPLE_ENTRIES)
+    assert report["unchanged"] == len(SAMPLE_ENTRIES)
+    assert client.count(settings.qdrant_collection_name).count == len(SAMPLE_ENTRIES)
 
 
 def test_complete_collection_gets_no_index_calls():
@@ -280,10 +446,10 @@ def test_empty_input_returns_empty_list():
 
 
 def test_bge_query_gets_retrieval_instruction_but_documents_do_not(fake_dense_model):
-    embedding_service.embed_query("What is EVEE?")
-    embedding_service.embed_documents(["EVEE is a voice agent."])
+    embedding_service.embed_query("What is Zephyr?")
+    embedding_service.embed_documents(["Zephyr is a sync engine."])
     assert fake_dense_model.seen[0].startswith("Represent this sentence for searching relevant passages: ")
-    assert fake_dense_model.seen[1] == "EVEE is a voice agent."
+    assert fake_dense_model.seen[1] == "Zephyr is a sync engine."
 
 
 def test_prefix_override_replaces_model_default(fake_dense_model, monkeypatch):
@@ -357,9 +523,9 @@ def test_model_load_failure_raises_service_error():
 def test_real_models_produce_expected_shapes(monkeypatch):
     monkeypatch.setattr(settings, "embedding_model", "BAAI/bge-small-en-v1.5")
     monkeypatch.setattr(settings, "sparse_model", "Qdrant/bm25")
-    assert len(embedding_service.embed_documents(["Suraj is a backend engineer."])[0]) == 384
-    assert len(embedding_service.embed_query("What does Suraj do?")) == 384
-    sparse = embedding_service.embed_sparse_query("Jira Fixer plugin")
+    assert len(embedding_service.embed_documents(["Acme Notes is a note-taking app."])[0]) == 384
+    assert len(embedding_service.embed_query("What does Acme Notes do?")) == 384
+    sparse = embedding_service.embed_sparse_query("two-factor authentication")
     assert len(sparse.indices) == len(sparse.values) > 0
 
 
@@ -367,31 +533,34 @@ def test_real_models_produce_expected_shapes(monkeypatch):
 # query_service
 # ----------------------------------------------------------------------------
 
+ROUTING_CATEGORIES = ["Projects", "Technical_Skills", "Articles", "Billing", "Security & Privacy", "Policy", "FAQs"]
 HISTORY = [
-    {"role": "user", "content": "What is EVEE?"},
-    {"role": "assistant", "content": "EVEE is an offline voice agent."},
+    {"role": "user", "content": "What is Zephyr?"},
+    {"role": "assistant", "content": "Zephyr is the sync engine."},
 ]
 
 
 @pytest.mark.parametrize(
     "question, expected",
     [
-        ("What projects has Suraj worked on?", ["Projects"]),
-        ("List all the articles Suraj has written.", ["Articles"]),
-        ("What are Suraj's technical skills?", ["Technical_Skills"]),
-        ("Where did Suraj study?", []),  # not a list question: no routing
-        ("What technologies did Suraj use to build VAssureAI?", []),  # specific thing, not "list all"
-        ("What is EVEE?", []),
+        ("What projects has Alex worked on?", ["Projects"]),  # plural category = list question
+        ("List all the articles you have.", ["Articles"]),
+        ("What are your technical skills?", ["Technical_Skills"]),
+        ("Which skills do you have?", ["Technical_Skills"]),  # head noun alone
+        ("List every billing topic", ["Billing"]),  # explicit cue, singular name
+        ("Show me all your policies", ["Policy"]),  # y -> ies plural
+        ("What is the security and privacy policy?", []),  # names categories, but not a list question
+        ("What technologies did Alex use to build Zephyr?", []),
+        ("Where did Alex study?", []),
     ],
 )
 def test_category_routing_only_for_list_questions(question, expected):
-    assert plan_query(question).categories == expected
+    assert route_categories(question, ROUTING_CATEGORIES)[0] == expected
 
 
-def test_list_mode_only_for_aggregate_questions():
-    assert plan_query("What projects has Suraj worked on?").list_mode
-    assert not plan_query("Where did Suraj study?").list_mode
-    assert not plan_query("What is EVEE?").list_mode
+def test_routing_uses_the_categories_passed_in():
+    assert plan_query("What projects exist?", categories=ROUTING_CATEGORIES).list_mode
+    assert not plan_query("What projects exist?", categories=[]).list_mode  # unknown category: no routing
 
 
 @pytest.mark.parametrize(
@@ -401,8 +570,8 @@ def test_list_mode_only_for_aggregate_questions():
         ("What tech stack was used for the first one?", True),
         ("Which neural networks were used there?", True),
         ("And Aiden?", True),  # very short follow-up
-        ("What is his LinkedIn profile URL?", False),  # "his" = the portfolio owner
-        ("Which databases has Suraj worked with?", False),
+        ("What is his email address?", True),  # pronouns refer to earlier turns
+        ("Which databases does Nimbus support?", False),
     ],
 )
 def test_follow_up_detection(question, expected):
@@ -417,15 +586,15 @@ def test_no_history_means_no_llm_call(monkeypatch):
 
 def test_follow_up_is_rewritten_into_standalone_query(monkeypatch):
     monkeypatch.setattr(
-        llm_service, "complete", lambda system, user: "Standalone query: What latency does EVEE achieve?"
+        llm_service, "complete", lambda system, user: "Standalone query: What latency does Zephyr achieve?"
     )
     plan = plan_query("What latency does it achieve?", HISTORY)
-    assert plan.rewritten and plan.retrieval_query == "What latency does EVEE achieve?"
+    assert plan.rewritten and plan.retrieval_query == "What latency does Zephyr achieve?"
 
 
 def test_standalone_question_with_history_is_not_rewritten(monkeypatch):
     monkeypatch.setattr(llm_service, "complete", lambda *a: pytest.fail("LLM must not be called"))
-    assert not plan_query("Which databases has Suraj worked with?", HISTORY).rewritten
+    assert not plan_query("Which databases does Nimbus support?", HISTORY).rewritten
 
 
 def test_rewrite_failure_falls_back_to_original_question(monkeypatch):
@@ -453,7 +622,7 @@ def test_only_recent_history_reaches_the_rewriter(monkeypatch):
     monkeypatch.setattr(llm_service, "complete", capture)
     old = [{"role": "user", "content": "OLD-TOPIC"}, {"role": "assistant", "content": "old answer"}]
     plan_query("tell me more about it", old + HISTORY)
-    assert "OLD-TOPIC" not in seen["user"] and "What is EVEE?" in seen["user"]
+    assert "OLD-TOPIC" not in seen["user"] and "What is Zephyr?" in seen["user"]
 
 
 # ----------------------------------------------------------------------------
@@ -461,15 +630,16 @@ def test_only_recent_history_reaches_the_rewriter(monkeypatch):
 # ----------------------------------------------------------------------------
 
 
-def _point(record_id, score, category="Projects"):
+def _point(entry_id, score, category="Features", chunk_index=0):
     return SimpleNamespace(
         score=score,
         payload={
-            "record_id": record_id,
+            "entry_id": entry_id,
+            "chunk_index": chunk_index,
             "category": category,
-            "title": record_id,
-            "content": f"content of {record_id}",
-            "url": None,
+            "title": entry_id,
+            "content": f"content of {entry_id}",
+            "url": "",
         },
     )
 
@@ -478,41 +648,50 @@ def _plan(query, categories=None, list_mode=False):
     return QueryPlan(question=query, retrieval_query=query, categories=categories or [], list_mode=list_mode)
 
 
-# --- fusion -------------------------------------------------------------------
-
-
 def test_rrf_rewards_documents_ranked_well_by_both_retrievers():
     results = {
         "dense": [_point("A", 0.9), _point("B", 0.8), _point("C", 0.7)],
         "sparse": [_point("C", 12.0), _point("A", 9.0)],
     }
     fused = fuse(results, k=60)
-    assert [c.record_id for c in fused] == ["A", "C", "B"]
+    assert [c.entry_id for c in fused] == ["A", "C", "B"]
     assert fused[0].ranks == {"dense": 1, "sparse": 2}
 
 
+def test_points_from_before_chunking_still_answer_until_the_next_sync():
+    legacy = SimpleNamespace(
+        score=0.7,
+        payload={"record_id": "PRJ001", "category": "Projects", "title": "T", "content": "C", "url": "https://x"},
+    )
+    [candidate] = fuse({"dense": [legacy]}, k=60)
+    assert (candidate.entry_id, candidate.chunk_index, candidate.url) == ("PRJ001", 0, "https://x")
+
+
+def test_chunks_of_one_entry_stay_separate_candidates():
+    fused = fuse({"dense": [_point("A", 0.9, chunk_index=0), _point("A", 0.8, chunk_index=1)]}, k=60)
+    assert [c.key for c in fused] == ["A#0", "A#1"]
+
+
 def test_sparse_scores_never_masquerade_as_dense_cosine():
-    fused = {c.record_id: c for c in fuse({"dense": [_point("A", 0.5)], "sparse": [_point("B", 15.0)]}, k=60)}
+    fused = {c.entry_id: c for c in fuse({"dense": [_point("A", 0.5)], "sparse": [_point("B", 15.0)]}, k=60)}
     assert fused["A"].dense_score == 0.5
     assert fused["B"].dense_score is None
 
 
 def test_category_list_supplies_dense_score_for_docs_outside_global_top_n():
-    fused = {c.record_id: c for c in fuse({"dense": [_point("A", 0.6)], "category:Projects": [_point("P", 0.4)]}, k=60)}
+    fused = {c.entry_id: c for c in fuse({"dense": [_point("A", 0.6)], "category:Features": [_point("P", 0.4)]}, k=60)}
     assert fused["P"].dense_score == 0.4
-
-
-# --- evidence gate and top-k ----------------------------------------------------
 
 
 def _candidates(n, dense=0.5, rerank=None):
     return [
         Candidate(
             f"D{i}",
-            "Projects",
+            0,
+            "Features",
             f"D{i}",
             "x",
-            None,
+            "",
             dense_score=dense,
             rerank_score=None if rerank is None else rerank - i,
         )
@@ -523,16 +702,16 @@ def _candidates(n, dense=0.5, rerank=None):
 def test_dense_gate_drops_low_cosine_and_unscored_docs(monkeypatch):
     monkeypatch.setattr(settings, "retrieval_score_threshold", 0.45)
     candidates = _candidates(2, dense=0.6) + [
-        Candidate("LOW", "x", "x", "x", None, dense_score=0.3),
-        Candidate("SPARSE_ONLY", "x", "x", "x", None, dense_score=None),
+        Candidate("LOW", 0, "x", "x", "x", "", dense_score=0.3),
+        Candidate("SPARSE_ONLY", 0, "x", "x", "x", "", dense_score=None),
     ]
-    assert [c.record_id for c in select(candidates, reranked=False, list_mode=False)] == ["D0", "D1"]
+    assert [c.entry_id for c in select(candidates, reranked=False, list_mode=False)] == ["D0", "D1"]
 
 
 def test_rerank_gate_uses_cross_encoder_scores(monkeypatch):
     monkeypatch.setattr(settings, "rerank_score_threshold", 0.0)
     candidates = _candidates(5, dense=0.9, rerank=2.0)  # rerank scores 2, 1, 0, -1, -2
-    assert [c.record_id for c in select(candidates, reranked=True, list_mode=False)] == ["D0", "D1", "D2"]
+    assert [c.entry_id for c in select(candidates, reranked=True, list_mode=False)] == ["D0", "D1", "D2"]
 
 
 def test_list_questions_get_a_larger_top_k(monkeypatch):
@@ -548,41 +727,35 @@ def test_nothing_above_the_gate_means_no_evidence(monkeypatch):
     assert select(_candidates(5, rerank=2.0), reranked=True, list_mode=False) == []
 
 
-# --- context construction ---------------------------------------------------------
-
-
 def test_context_is_numbered_attributed_and_respects_token_budget():
     candidates = [
-        Candidate(f"D{i}", "Projects", f"Title {i}", "word " * 200, "https://x" if i == 0 else None) for i in range(10)
+        Candidate(f"D{i}", 0, "Features", f"Title {i}", "word " * 200, "https://x" if i == 0 else "") for i in range(10)
     ]
     context, used, tokens = build_context(candidates, max_tokens=600)
-    assert context.startswith("[1] Projects — Title 0 (https://x)")
-    assert "[2] Projects — Title 1\n" in context
+    assert context.startswith("[1] Features — Title 0 (https://x)")
+    assert "[2] Features — Title 1\n" in context
     assert 1 <= len(used) < 10 and tokens <= 600
 
 
 def test_context_always_keeps_the_best_source_even_if_over_budget():
-    _, used, _ = build_context([Candidate("BIG", "Projects", "Big", "word " * 5000, None)], max_tokens=10)
-    assert [c.record_id for c in used] == ["BIG"]
-
-
-# --- end-to-end retrieval over an in-memory index ---------------------------------
+    _, used, _ = build_context([Candidate("BIG", 0, "Features", "Big", "word " * 5000, "")], max_tokens=10)
+    assert [c.entry_id for c in used] == ["BIG"]
 
 
 def test_hybrid_retrieval_finds_exact_identifier(indexed_client):
-    selected = retrieve(_plan("What is Orbit?"), client=indexed_client)
-    assert selected[0].record_id == "PRJ001"
+    selected = retrieve(_plan("What is Zephyr?"), indexed_client)
+    assert selected[0].entry_id == "PRJ001"
 
 
-def test_category_routing_pulls_every_record_of_that_kind(indexed_client, monkeypatch):
+def test_category_routing_pulls_every_entry_of_that_kind(indexed_client, monkeypatch):
     monkeypatch.setattr(settings, "retrieval_list_top_k", 10)
-    selected = retrieve(_plan("What projects has Alex built?", ["Projects"], list_mode=True), client=indexed_client)
-    assert {"PRJ001", "PRJ002"} <= {c.record_id for c in selected}
+    selected = retrieve(_plan("What articles exist?", ["Articles"], list_mode=True), indexed_client)
+    assert {"ART001", "ART002"} <= {c.entry_id for c in selected}
 
 
 def test_vectors_from_another_embedding_version_are_never_returned(indexed_client, monkeypatch):
     monkeypatch.setattr(settings, "embedding_model", "some-other-model")  # changes embedding_version()
-    assert retrieve(_plan("What is Orbit?"), client=indexed_client) == []
+    assert retrieve(_plan("What is Zephyr?"), indexed_client) == []
 
 
 def test_query_with_no_known_terms_skips_sparse_retriever(indexed_client):
@@ -596,70 +769,89 @@ def test_query_with_no_known_terms_skips_sparse_retriever(indexed_client):
 def test_dense_only_mode_when_sparse_model_disabled(fake_models, monkeypatch):
     monkeypatch.setattr(settings, "sparse_model", "")
     client = QdrantClient(":memory:")
-    index_documents(client, build_documents(SAMPLE_RECORDS))
+    index_chunks(client, build_chunks(sample_entries()))
     trace: dict = {}
-    retrieve(_plan("What is Orbit?"), client=client, trace=trace)
+    retrieve(_plan("What is Zephyr?"), client, trace=trace)
     assert set(trace["retrievers"]) == {"dense"}
 
 
 # ----------------------------------------------------------------------------
-# sync_service: incremental indexing
+# sync: incremental, idempotent indexing
 # ----------------------------------------------------------------------------
 
 
-def _index(client, records):
-    return index_documents(client, build_documents(records))
+def _index(client, entries, **kwargs):
+    return index_chunks(client, build_chunks([KnowledgeEntryIn.model_validate(e) for e in entries], **kwargs))
 
 
 def test_first_sync_adds_everything_and_rerun_is_a_no_op(fake_models):
     client = QdrantClient(":memory:")
-    first = _index(client, SAMPLE_RECORDS)
-    second = _index(client, SAMPLE_RECORDS)
-    assert first["added"] == len(SAMPLE_RECORDS) and first["reindexed"]
-    assert second == {"added": 0, "updated": 0, "removed": 0, "unchanged": len(SAMPLE_RECORDS), "reindexed": False}
+    first = _index(client, SAMPLE_ENTRIES)
+    second = _index(client, SAMPLE_ENTRIES)
+    n = len(SAMPLE_ENTRIES)
+    assert first["added"] == n and first["vectors_upserted"] == n and first["reindexed"]
+    assert second == {
+        "total_entries": n, "chunks_embedded": 0, "vectors_upserted": 0,
+        "added": 0, "updated": 0, "removed": 0, "unchanged": n, "reindexed": False,
+    }  # fmt: skip
 
 
-def test_only_the_changed_record_is_re_embedded(fake_models, monkeypatch):
+def test_only_the_changed_entry_is_re_embedded(fake_models, monkeypatch):
     client = QdrantClient(":memory:")
-    _index(client, SAMPLE_RECORDS)
+    _index(client, SAMPLE_ENTRIES)
 
     embedded = []
     real = embedding_service.embed_documents
     monkeypatch.setattr(embedding_service, "embed_documents", lambda texts: embedded.extend(texts) or real(texts))
-    records = copy.deepcopy(SAMPLE_RECORDS)
-    records[4]["title"] = "Orbit v2"  # title-only edit must still propagate
-    report = _index(client, records)
+    entries = copy.deepcopy(SAMPLE_ENTRIES)
+    entries[2]["title"] = "Zephyr v2"  # title-only edit must still propagate
+    report = _index(client, entries)
 
-    assert report["updated"] == 1 and report["unchanged"] == len(records) - 1
-    assert len(embedded) == 1 and "Orbit v2" in embedded[0]
+    assert report["updated"] == 1 and report["unchanged"] == len(entries) - 1
+    assert len(embedded) == 1 and "Zephyr v2" in embedded[0]
 
 
-def test_removed_and_deactivated_records_are_deleted(fake_models):
+def test_removed_and_deactivated_entries_are_deleted(fake_models):
     client = QdrantClient(":memory:")
-    _index(client, SAMPLE_RECORDS)
-    records = copy.deepcopy(SAMPLE_RECORDS)
-    records[5]["active"] = False  # PRJ002 deactivated
-    report = _index(client, records)
-    assert report["removed"] == 1
-    assert "PRJ002" not in qdrant_service.fetch_existing_fingerprints(client)
+    _index(client, SAMPLE_ENTRIES)
+    entries = copy.deepcopy(SAMPLE_ENTRIES)
+    entries[5]["active"] = False  # ART002 deactivated
+    del entries[0]  # PER001 deleted
+    report = _index(client, entries)
+    assert report["removed"] == 2
+    assert {"ART002", "PER001"}.isdisjoint(qdrant_service.scan_index(client)[0])
 
 
-def test_embedding_model_change_re_embeds_every_record(fake_models, monkeypatch):
+def test_shrinking_an_entry_leaves_no_stale_chunks(fake_models):
     client = QdrantClient(":memory:")
-    _index(client, SAMPLE_RECORDS)
+    long_entry = {
+        "id": "LONG",
+        "category": "Projects",
+        "title": "Guide",
+        "content": " ".join(f"Step {i} is done." for i in range(60)),
+    }
+    assert _index(client, [long_entry], chunk_size=200)["vectors_upserted"] > 2
+    report = _index(client, [{**long_entry, "content": "Now it is short."}], chunk_size=200)
+    assert report["updated"] == 1 and report["vectors_upserted"] == 1
+    assert client.count(settings.qdrant_collection_name).count == 1
+
+
+def test_embedding_model_change_re_embeds_every_entry(fake_models, monkeypatch):
+    client = QdrantClient(":memory:")
+    _index(client, SAMPLE_ENTRIES)
     monkeypatch.setattr(settings, "embedding_model", "fake-dense-v2")  # same dimension, new version
-    report = _index(client, SAMPLE_RECORDS)
-    assert report["updated"] == len(SAMPLE_RECORDS) and not report["reindexed"]
+    report = _index(client, SAMPLE_ENTRIES)
+    assert report["updated"] == len(SAMPLE_ENTRIES) and not report["reindexed"]
 
 
 def test_dimension_change_recreates_the_collection(fake_models, monkeypatch):
     client = QdrantClient(":memory:")
-    _index(client, SAMPLE_RECORDS)
+    _index(client, SAMPLE_ENTRIES)
     monkeypatch.setattr(embedding_service, "embedding_dim", lambda: 16)
     monkeypatch.setattr(embedding_service, "embed_documents", lambda texts: [[1.0] * 16 for _ in texts])
     monkeypatch.setattr(settings, "embedding_model", "fake-dense-16")
-    report = _index(client, SAMPLE_RECORDS)
-    assert report["reindexed"] and report["added"] == len(SAMPLE_RECORDS)
+    report = _index(client, SAMPLE_ENTRIES)
+    assert report["reindexed"] and report["added"] == len(SAMPLE_ENTRIES)
     info = client.get_collection(settings.qdrant_collection_name)
     assert info.config.params.vectors[qdrant_service.DENSE].size == 16
 
@@ -671,8 +863,15 @@ def test_legacy_unnamed_vector_collection_is_migrated(fake_models):
     client.create_collection(
         settings.qdrant_collection_name, vectors_config=qmodels.VectorParams(size=384, distance=qmodels.Distance.COSINE)
     )
-    report = _index(client, SAMPLE_RECORDS)
-    assert report["reindexed"] and report["added"] == len(SAMPLE_RECORDS)
+    report = _index(client, SAMPLE_ENTRIES)
+    assert report["reindexed"] and report["added"] == len(SAMPLE_ENTRIES)
+
+
+def test_nothing_changed_loads_no_models(fake_models, monkeypatch):
+    client = QdrantClient(":memory:")
+    _index(client, SAMPLE_ENTRIES)
+    monkeypatch.setattr(embedding_service, "embed_sparse_documents", lambda texts: pytest.fail("no work to do"))
+    assert _index(client, SAMPLE_ENTRIES)["chunks_embedded"] == 0
 
 
 # ----------------------------------------------------------------------------
@@ -693,62 +892,61 @@ def test_reranker_failure_falls_back_instead_of_failing(monkeypatch):
 def test_reranker_scores_reorder_candidates(indexed_client, monkeypatch):
     monkeypatch.setattr(settings, "reranker_model", "fake-reranker")
     monkeypatch.setattr(settings, "rerank_score_threshold", 0.0)
-    # Pretend the cross-encoder knows Ledger is the answer, whatever fusion thought.
+    # Pretend the cross-encoder knows Reminders is the answer, whatever fusion thought.
     monkeypatch.setattr(
-        rerank_service, "rerank", lambda query, passages: [5.0 if "Ledger" in p else -1.0 for p in passages]
+        rerank_service, "rerank", lambda query, passages: [5.0 if "Reminders" in p else -1.0 for p in passages]
     )
     trace: dict = {}
-    selected = retrieval_service.retrieve(_plan("What is Orbit?"), client=indexed_client, trace=trace)
-    assert [c.record_id for c in selected] == ["PRJ002"] and trace["reranked"]
+    selected = retrieval_service.retrieve(_plan("What is Zephyr?"), indexed_client, trace=trace)
+    assert [c.entry_id for c in selected] == ["PRJ002"] and trace["reranked"]
 
 
 def test_retrieval_falls_back_to_fusion_order_when_reranker_unavailable(indexed_client, monkeypatch):
     monkeypatch.setattr(settings, "reranker_model", "broken")
     monkeypatch.setattr(rerank_service, "rerank", lambda *a: None)
     trace: dict = {}
-    selected = retrieval_service.retrieve(_plan("What is Orbit?"), client=indexed_client, trace=trace)
-    assert selected[0].record_id == "PRJ001" and not trace["reranked"]
+    selected = retrieval_service.retrieve(_plan("What is Zephyr?"), indexed_client, trace=trace)
+    assert selected[0].entry_id == "PRJ001" and not trace["reranked"]
 
 
 # ----------------------------------------------------------------------------
-# retrieval_service + llm_service: answers, citations, providers
+# citations
 # ----------------------------------------------------------------------------
 
 
 def _used(n):
-    return [Candidate(f"D{i}", "Projects", f"Title {i}", "c", None) for i in range(1, n + 1)]
-
-
-# --- citations ----------------------------------------------------------------------
+    return [Candidate(f"D{i}", 0, "Features", f"Title {i}", "c", "") for i in range(1, n + 1)]
 
 
 def test_citations_renumbered_in_order_of_first_use():
     answer, cited = apply_citations("Uses Python [3] and FastAPI [1]; also Python [3].", _used(3))
     assert answer == "Uses Python [1] and FastAPI [2]; also Python [1]."
-    assert [c.record_id for c in cited] == ["D3", "D1"]
+    assert [c.entry_id for c in cited] == ["D3", "D1"]
 
 
 def test_out_of_range_citations_are_dropped():
     answer, cited = apply_citations("Fact [1]. Invented [9].", _used(2))
-    assert answer == "Fact [1]. Invented ." and [c.record_id for c in cited] == ["D1"]
+    assert answer == "Fact [1]. Invented ." and [c.entry_id for c in cited] == ["D1"]
 
 
 def test_gpt_oss_native_citation_style_is_normalised():
-    answer, cited = apply_citations("CGPA 8.35【2】【1†L1-L3】.", _used(2))
-    assert answer == "CGPA 8.35[1][2]." and [c.record_id for c in cited] == ["D2", "D1"]
+    answer, cited = apply_citations("Costs 6 dollars【2】【1†L1-L3】.", _used(2))
+    assert answer == "Costs 6 dollars[1][2]." and [c.entry_id for c in cited] == ["D2", "D1"]
 
 
 def test_grouped_citations_are_split():
     answer, cited = apply_citations("Both [2, 1].", _used(2))
-    assert answer == "Both [1][2]." and [c.record_id for c in cited] == ["D2", "D1"]
+    assert answer == "Both [1][2]." and [c.entry_id for c in cited] == ["D2", "D1"]
 
 
-# --- answer_question end to end (fake models, in-memory index, stubbed LLM) -------------
+# ----------------------------------------------------------------------------
+# answer_question end to end (fake models, in-memory index, stubbed LLM)
+# ----------------------------------------------------------------------------
 
 
 @pytest.fixture
 def pipeline(indexed_client, monkeypatch):
-    state = SimpleNamespace(reply="Orbit is a voice assistant [1].", calls=[])
+    state = SimpleNamespace(reply="Zephyr is the sync engine [1].", calls=[])
     monkeypatch.setattr(qdrant_service, "get_client", lambda: indexed_client)
 
     def fake_generate(question, context, interpreted_as=None):
@@ -759,16 +957,30 @@ def pipeline(indexed_client, monkeypatch):
     return state
 
 
-def test_answer_returns_only_cited_sources_in_citation_order(pipeline):
-    result = retrieval_service.answer_question("What is Orbit?")
-    assert result["answer"] == "Orbit is a voice assistant [1]."
-    assert [s["title"] for s in result["sources"]] == ["Orbit"]
+def test_answer_returns_only_cited_sources_with_snippets(pipeline):
+    result = retrieval_service.answer_question("What is Zephyr?")
+    assert result["reply"] == "Zephyr is the sync engine [1]."
+    [source] = result["sources"]
+    assert source["entry_id"] == "PRJ001" and source["title"] == "Zephyr sync engine"
+    assert "syncs calendars offline" in source["snippet"] and source["score"] is not None
+
+
+def test_list_question_routes_by_categories_found_in_the_index(pipeline, monkeypatch):
+    monkeypatch.setattr(settings, "rag_debug", True)
+    debug = retrieval_service.answer_question("List every article")["debug"]
+    assert debug["categories"] == ["Articles"] and debug["list_mode"]
 
 
 def test_refusal_returns_no_sources(pipeline):
-    pipeline.reply = NO_INFO_ANSWER
-    result = retrieval_service.answer_question("What is Alex's favourite movie?")
-    assert result["answer"] == NO_INFO_ANSWER and result["sources"] == []
+    pipeline.reply = NO_ANSWER
+    result = retrieval_service.answer_question("What is the CEO's favourite movie?")
+    assert result["reply"] == NO_ANSWER and result["sources"] == []
+
+
+def test_custom_no_answer_message_is_used(pipeline, monkeypatch):
+    monkeypatch.setattr(settings, "no_answer_message", "Sorry, I don't know that one.")
+    monkeypatch.setattr(settings, "retrieval_score_threshold", 1.01)
+    assert retrieval_service.answer_question("anything")["reply"] == "Sorry, I don't know that one."
 
 
 def test_uncited_reply_returns_no_sources(pipeline):
@@ -778,41 +990,51 @@ def test_uncited_reply_returns_no_sources(pipeline):
 
 def test_no_evidence_means_refusal_without_calling_the_llm(pipeline, monkeypatch):
     monkeypatch.setattr(settings, "retrieval_score_threshold", 1.01)  # nothing can pass the gate
-    result = retrieval_service.answer_question("What is Orbit?")
-    assert result["answer"] == NO_INFO_ANSWER and pipeline.calls == []
+    result = retrieval_service.answer_question("What is Zephyr?")
+    assert result["reply"] == NO_ANSWER and pipeline.calls == []
 
 
 def test_history_is_used_for_rewriting_only_never_as_evidence(pipeline, monkeypatch):
-    monkeypatch.setattr(llm_service, "complete", lambda system, user: "What is Orbit used for?")
+    monkeypatch.setattr(llm_service, "complete", lambda system, user: "What is Zephyr used for?")
     history = [
-        {"role": "user", "content": "Tell me about Orbit"},
-        {"role": "assistant", "content": "SECRET-ASSISTANT-CLAIM Orbit won an award."},
+        {"role": "user", "content": "Tell me about Zephyr"},
+        {"role": "assistant", "content": "SECRET-ASSISTANT-CLAIM Zephyr won an award."},
     ]
     retrieval_service.answer_question("What is it used for?", history)
     call = pipeline.calls[0]
-    assert call["interpreted_as"] == "What is Orbit used for?"
+    assert call["interpreted_as"] == "What is Zephyr used for?"
     assert "SECRET-ASSISTANT-CLAIM" not in call["context"]
 
 
 def test_debug_trace_only_when_enabled(pipeline, monkeypatch):
-    assert "debug" not in retrieval_service.answer_question("What is Orbit?")
+    assert "debug" not in retrieval_service.answer_question("What is Zephyr?")
     monkeypatch.setattr(settings, "rag_debug", True)
-    debug = retrieval_service.answer_question("What is Orbit?")["debug"]
+    debug = retrieval_service.answer_question("What is Zephyr?")["debug"]
     assert {"retrieval_query", "candidates", "embed_ms", "search_ms", "total_ms"} <= set(debug)
 
 
 def test_empty_llm_answer_is_an_error(pipeline):
     pipeline.reply = ""
     with pytest.raises(LLMServiceError):
-        retrieval_service.answer_question("What is Orbit?")
+        retrieval_service.answer_question("What is Zephyr?")
 
 
-# --- prompt and provider behaviour -------------------------------------------------------
+# ----------------------------------------------------------------------------
+# llm_service: prompt and Groq behaviour
+# ----------------------------------------------------------------------------
 
 
-def test_system_prompt_enforces_grounding_and_untrusted_sources():
-    for rule in ("ONLY the numbered sources", "untrusted data", NO_INFO_ANSWER, "contradict", "[1]"):
-        assert rule in ANSWER_SYSTEM
+def test_system_prompt_is_persona_plus_fixed_grounding_rules(monkeypatch):
+    monkeypatch.setattr(settings, "assistant_persona", "You are Nimbus's support assistant.")
+    prompt = answer_system_prompt()
+    assert prompt.startswith("You are Nimbus's support assistant.\n\n")
+    for rule in ("ONLY the numbered sources", "untrusted data", NO_ANSWER, "contradict", "[1]"):
+        assert rule in prompt
+
+
+def test_persona_cannot_break_prompt_formatting(monkeypatch):
+    monkeypatch.setattr(settings, "assistant_persona", "Braces {like_this} are fine.")
+    assert "Braces {like_this} are fine." in answer_system_prompt()
 
 
 class _Response:
@@ -828,10 +1050,14 @@ GROQ_OK = {"choices": [{"message": {"content": "answer"}}]}
 
 @pytest.fixture
 def groq(monkeypatch):
-    monkeypatch.setattr(settings, "llm_provider", "groq")
-    monkeypatch.setattr(settings, "llm_api_key", "test-key")
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
     monkeypatch.setattr(settings, "llm_max_retries", 2)
     monkeypatch.setattr(llm_service.time, "sleep", lambda s: None)
+
+
+def test_missing_groq_key_is_a_clear_error():
+    with pytest.raises(LLMServiceError, match="GROQ_API_KEY"):
+        llm_service.complete("sys", "user")
 
 
 def test_rate_limit_is_retried_then_succeeds(groq, monkeypatch):
@@ -858,23 +1084,15 @@ def test_network_errors_exhaust_retries_with_safe_message(groq, monkeypatch):
     assert "3 attempts" in str(err.value) and "secret" not in str(err.value)
 
 
-def test_groq_request_separates_system_and_user_messages(groq, monkeypatch):
+def test_groq_request_uses_configured_model_and_separates_messages(groq, monkeypatch):
+    monkeypatch.setattr(settings, "groq_model", "my-model")
     sent = {}
     monkeypatch.setattr(llm_service.httpx, "post", lambda **kw: sent.update(kw) or _Response(200, GROQ_OK))
     llm_service.complete("SYSTEM RULES", "USER QUESTION")
     roles = [(m["role"], m["content"]) for m in sent["json"]["messages"]]
     assert roles == [("system", "SYSTEM RULES"), ("user", "USER QUESTION")]
-    assert sent["json"]["temperature"] == settings.llm_temperature
-
-
-def test_gemini_key_goes_in_header_never_in_url(monkeypatch):
-    monkeypatch.setattr(settings, "llm_provider", "gemini")
-    monkeypatch.setattr(settings, "llm_api_key", "gemini-secret")
-    sent = {}
-    body = {"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}
-    monkeypatch.setattr(llm_service.httpx, "post", lambda **kw: sent.update(kw) or _Response(200, body))
-    llm_service.complete("sys", "user")
-    assert "gemini-secret" not in sent["url"] and sent["headers"]["x-goog-api-key"] == "gemini-secret"
+    assert sent["json"]["model"] == "my-model" and sent["json"]["temperature"] == settings.llm_temperature
+    assert "test-key" not in sent["url"]
 
 
 def test_exhausted_rate_limit_carries_provider_retry_after(groq, monkeypatch):

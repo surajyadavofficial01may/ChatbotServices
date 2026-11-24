@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+SESSION_ID_PATTERN = r"^[A-Za-z0-9._-]{1,64}$"
+
 
 class ChatTurn(BaseModel):
     """One earlier message in the conversation."""
@@ -12,19 +14,57 @@ class ChatTurn(BaseModel):
     content: str = Field(min_length=1, max_length=2000)
 
 
-class ChatAskRequest(BaseModel):
-    """A visitor's question, optionally with earlier turns for follow-up questions.
+class ChatRequest(BaseModel):
+    """A user message.
 
-    History is kept by the client and only used to resolve references such as
-    "it" or "the first one"; it is never treated as evidence.
+    Follow-up questions ("what does *it* cost?") need the earlier turns. Either send
+    back the `session_id` from the previous response and the server remembers them,
+    or keep them yourself and send `history` (stateless clients). History is only used
+    to resolve references, never as a source of facts.
     """
 
-    question: str = Field(min_length=1, max_length=1000, examples=["What projects are in the portfolio?"])
-    history: list[ChatTurn] = Field(default_factory=list, max_length=20)
+    message: str = Field(min_length=1, max_length=1000, examples=["How do I reset my password?"])
+    session_id: str | None = Field(
+        default=None, pattern=SESSION_ID_PATTERN, description="From a previous response; omit to start a new session."
+    )
+    history: list[ChatTurn] | None = Field(
+        default=None, max_length=20, description="Earlier turns, oldest first. Overrides the session's memory."
+    )
 
 
 class Source(BaseModel):
-    """A knowledge-base record cited by an answer."""
+    """A knowledge-base chunk cited by the reply."""
+
+    entry_id: str
+    title: str
+    category: str
+    url: str = Field(default="", description='Source link ("" when the row has none).')
+    snippet: str = Field(description="The cited chunk's text (truncated).")
+    score: float | None = Field(default=None, description="Relevance score that ranked this chunk.")
+
+
+class ChatResponse(BaseModel):
+    """A grounded reply and the sources it cites."""
+
+    reply: str
+    sources: list[Source] = Field(default_factory=list, description="Citation order: [1] in the reply is sources[0].")
+    session_id: str = Field(description="Send this back with the next message to continue the conversation.")
+    latency_ms: float
+    debug: dict[str, Any] | None = Field(default=None, description="Retrieval trace; only when RAG_DEBUG=true.")
+
+
+# --- Deprecated v0 contract (POST /api/v1/chat/ask), kept so existing frontends keep working ---
+
+
+class ChatAskRequest(BaseModel):
+    """Deprecated: use `ChatRequest`."""
+
+    question: str = Field(min_length=1, max_length=1000)
+    history: list[ChatTurn] = Field(default_factory=list, max_length=20)
+
+
+class LegacySource(BaseModel):
+    """Deprecated: use `Source`."""
 
     category: str
     title: str
@@ -32,12 +72,12 @@ class Source(BaseModel):
 
 
 class ChatAskResponse(BaseModel):
-    """A grounded answer and the sources it cites."""
+    """Deprecated: use `ChatResponse`."""
 
     success: bool
     answer: str
-    sources: list[Source] = Field(default_factory=list, description="Citation order: [1] in the answer is sources[0].")
-    debug: dict[str, Any] | None = Field(default=None, description="Retrieval trace; only when RAG_DEBUG=true.")
+    sources: list[LegacySource] = Field(default_factory=list)
+    debug: dict[str, Any] | None = None
 
 
 class FieldError(BaseModel):

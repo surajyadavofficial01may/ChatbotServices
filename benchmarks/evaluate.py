@@ -1,16 +1,24 @@
-"""RAG benchmark over benchmarks/corpus.json + benchmarks/rag-evaluation.json.
+r"""RAG benchmark: a knowledge base plus hand-labelled questions, run through the production code paths.
 
-Retrieval (offline: local models, in-memory Qdrant, production code paths):
+By default it uses the shipped sample (data/sample_entries.json + benchmarks/eval-cases.json).
+To benchmark your own content, point it at a snapshot of your knowledge base and your own labels
+(keep them in the gitignored private/ folder if they contain personal data):
+
+    BENCH_CORPUS=private/benchmarks/corpus.json BENCH_CASES=private/benchmarks/cases.json \\
+        python -m benchmarks.evaluate --configs production
+
+Retrieval (offline: local models, in-memory Qdrant):
     python -m benchmarks.evaluate                         # every config, one subprocess each
-    python -m benchmarks.evaluate --configs production,hybrid_bm25
-Generation (live LLM from .env, production config, rate-limit friendly):
+    python -m benchmarks.evaluate --configs production,+hybrid_bm25
+Generation (live Groq from .env, production config, rate-limit friendly):
     python -m benchmarks.evaluate --generation
-Results land in benchmarks/results/.
+Results land in BENCH_RESULTS (default benchmarks/results/, gitignored).
 """
 
 import argparse
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -19,7 +27,9 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
-RESULTS = ROOT / "benchmarks" / "results"
+CORPUS = ROOT / os.getenv("BENCH_CORPUS", "data/sample_entries.json")
+CASES = ROOT / os.getenv("BENCH_CASES", "benchmarks/eval-cases.json")
+RESULTS = ROOT / os.getenv("BENCH_RESULTS", "benchmarks/results")
 K = 5
 
 PRODUCTION = dict(content_only=False, routing=True)
@@ -65,36 +75,6 @@ CONFIGS: dict[str, dict] = {
     "dense:nomic-v1.5-Q": dict(_DENSE_ONLY, embedding_model="nomic-ai/nomic-embed-text-v1.5-Q"),
 }
 
-GEN_CASE_IDS = [
-    "fact-03",
-    "fact-04",
-    "fact-05",
-    "fact-07",
-    "fact-08",
-    "fact-12",
-    "fact-14",
-    "fact-17",
-    "fact-19",
-    "fact-20",
-    "sem-02",
-    "sem-03",
-    "sem-08",
-    "sem-09",
-    "list-01",
-    "list-04",
-    "multi-01",
-    "multi-03",
-    "follow-01",
-    "follow-02",
-    "follow-03",
-    "neg-01",
-    "neg-02",
-    "neg-03",
-    "neg-04",
-    "neg-05",
-    "neg-06",
-]
-
 
 def rss_mb() -> float:
     """Return this process's resident memory in MB (Windows working set or Linux VmRSS)."""
@@ -128,11 +108,11 @@ def rss_mb() -> float:
         return next((int(line.split()[1]) / 1024 for line in f if line.startswith("VmRSS:")), 0.0)
 
 
-def _load_data() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Load the frozen corpus records and the labelled benchmark cases."""
-    records = json.loads((ROOT / "benchmarks" / "corpus.json").read_text(encoding="utf-8"))["records"]
-    cases = json.loads((ROOT / "benchmarks" / "rag-evaluation.json").read_text(encoding="utf-8"))["cases"]
-    return records, cases
+def _load_data() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Load the corpus entries (a JSON array or `{"records": [...]}`) and the labelled cases file."""
+    corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
+    entries = corpus["records"] if isinstance(corpus, dict) else corpus
+    return entries, json.loads(CASES.read_text(encoding="utf-8"))
 
 
 def _apply(overrides: dict[str, Any]) -> tuple[Any, float]:
@@ -147,28 +127,36 @@ def _apply(overrides: dict[str, Any]) -> tuple[Any, float]:
     from qdrant_client import QdrantClient
 
     from app.core.config import settings
-    from app.services import data_fetcher, query_service, sync_service
+    from app.models.knowledge import KnowledgeEntryIn
+    from app.services import chunking, query_service, sync_service
 
     overrides = dict(overrides)
     if overrides.pop("content_only", False):
-        sync_service.embedding_text = lambda doc: doc.content  # reproduces the original pipeline's indexing
+        chunking.embedding_text = lambda chunk: chunk.text  # reproduces the original pipeline's indexing
     if not overrides.pop("routing", True):
-        original = query_service.plan_query
-
-        def plan_without_routing(question: str, history: list[dict[str, str]] | None = None) -> Any:
-            plan = original(question, history)
-            plan.categories, plan.list_mode = [], False
-            return plan
-
-        query_service.plan_query = plan_without_routing
+        query_service.route_categories = lambda query, categories: ([], False)
     for key, value in overrides.items():
         setattr(settings, key, value)
 
-    records, _ = _load_data()
+    entries, _ = _load_data()
     client = QdrantClient(":memory:")
     started = time.perf_counter()
-    sync_service.index_documents(client, data_fetcher.build_documents(records))
+    chunks = chunking.build_chunks(KnowledgeEntryIn.model_validate(e) for e in entries)
+    sync_service.index_chunks(client, chunks)
     return client, time.perf_counter() - started
+
+
+def _categories(client: Any) -> list[str]:
+    """Categories in the index, exactly as the production pipeline sees them."""
+    from app.services import embedding_service, qdrant_service
+
+    qdrant_service.clear_category_cache()
+    return qdrant_service.list_categories(client, embedding_service.embedding_version())
+
+
+def _entry_ids(candidates: list[Any]) -> list[str]:
+    """Entry ids in rank order, each once (an entry's chunks count as one document)."""
+    return list(dict.fromkeys(c.entry_id for c in candidates))
 
 
 def run_retrieval(name: str) -> dict[str, Any]:
@@ -187,14 +175,15 @@ def run_retrieval(name: str) -> dict[str, Any]:
 
     rss_start = rss_mb()
     client, index_seconds = _apply(CONFIGS[name])
-    _, cases = _load_data()
+    cases = _load_data()[1]["cases"]
+    categories = _categories(client)
 
     # Rank once with the gate disabled, then apply the production select() at the
     # configured threshold and across a sweep, so calibration needs no re-ranking.
     configured = (settings.retrieval_score_threshold, settings.rerank_score_threshold)
     rows, timings = [], {"embed_ms": [], "search_ms": [], "rerank_ms": []}
     for case in cases:
-        plan = query_service.plan_query(case["query"])  # offline: no LLM rewrite of follow-ups
+        plan = query_service.plan_query(case["query"], categories=categories)  # offline: no LLM rewrite
         trace: dict = {}
         candidates, reranked = retrieval_service.rank_candidates(plan, client, trace)
         for key in timings:
@@ -210,7 +199,7 @@ def run_retrieval(name: str) -> dict[str, Any]:
         per_case = []
         for row in rows:
             selected = retrieval_service.select(row["candidates"], row["reranked"], row["plan"].list_mode)
-            per_case.append((row["case"], [c.record_id for c in selected]))
+            per_case.append((row["case"], _entry_ids(selected)))
         settings.retrieval_score_threshold, settings.rerank_score_threshold = configured
         return _summarize(per_case, metrics)
 
@@ -239,7 +228,7 @@ def run_retrieval(name: str) -> dict[str, Any]:
             "negative_abstention": best["negative_abstention_rate"],
             "recall@5_at_safe": best[f"recall@{K}"],
             "recall@5_ungated": ungated[f"recall@{K}"],
-            "note": "highest gate losing no Hit@5; 6 negatives, so indicative only",
+            "note": "highest gate losing no Hit@5; few negatives, so indicative only",
         },
         cases=[{"id": c["id"], "ranked": ids} for c, ids in _per_case_ids(rows, retrieval_service)],
     )
@@ -256,12 +245,9 @@ def _scores(row: dict[str, Any]) -> list[float]:
 
 
 def _per_case_ids(rows: list[dict[str, Any]], retrieval_service: Any) -> list[tuple[dict[str, Any], list[str]]]:
-    """Return each case with the record ids that pass the configured gate."""
+    """Return each case with the entry ids that pass the configured gate."""
     return [
-        (
-            r["case"],
-            [c.record_id for c in retrieval_service.select(r["candidates"], r["reranked"], r["plan"].list_mode)],
-        )
+        (r["case"], _entry_ids(retrieval_service.select(r["candidates"], r["reranked"], r["plan"].list_mode)))
         for r in rows
     ]
 
@@ -301,11 +287,13 @@ def run_generation() -> dict[str, Any]:
 
     client, _ = _apply(PRODUCTION)
     qdrant_service.get_client = lambda: client
-    records, cases = _load_data()
-    title_to_id = {r["title"]: r["id"] for r in records}
+    qdrant_service.clear_category_cache()
+    cases_file = _load_data()[1]
+    # Optional "generation_cases" list in the cases file limits LLM usage to a subset.
+    chosen = set(cases_file.get("generation_cases") or [c["id"] for c in cases_file["cases"]])
 
     rows = []
-    for case in [c for c in cases if c["id"] in GEN_CASE_IDS]:
+    for case in [c for c in cases_file["cases"] if c["id"] in chosen]:
         for _ in range(6):
             try:
                 started = time.perf_counter()
@@ -317,18 +305,16 @@ def run_generation() -> dict[str, Any]:
         else:
             raise SystemExit(f"LLM kept failing on {case['id']}")
         relevant = set(case["relevant_ids"])
-        returned = [title_to_id.get(s["title"]) for s in result["sources"]]
+        returned = list(dict.fromkeys(s["entry_id"] for s in result["sources"]))
         rows.append(
             {
                 "id": case["id"],
                 "type": case["type"],
-                "answer": result["answer"],
+                "answer": result["reply"],
                 "returned_source_ids": returned,
-                "refused": metrics.is_refusal(result["answer"]),
-                "cited": bool(metrics.cited_indices(result["answer"])),
-                "fact_recall": metrics.fact_recall(result["answer"], case.get("must_include", []))
-                if relevant
-                else None,
+                "refused": metrics.is_refusal(result["reply"]),
+                "cited": bool(metrics.cited_indices(result["reply"])),
+                "fact_recall": metrics.fact_recall(result["reply"], case.get("must_include", [])) if relevant else None,
                 "source_precision": (len(set(returned) & relevant) / len(returned) if returned else 0.0)
                 if relevant
                 else None,
@@ -364,7 +350,7 @@ def main() -> None:
     parser.add_argument("--one", help=argparse.SUPPRESS)
     parser.add_argument("--generation", action="store_true")
     args = parser.parse_args()
-    RESULTS.mkdir(exist_ok=True)
+    RESULTS.mkdir(parents=True, exist_ok=True)
 
     if args.one:
         _quiet()

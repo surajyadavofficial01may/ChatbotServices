@@ -1,41 +1,45 @@
+# Render Blueprint: New -> Blueprint -> select this repository.
+# Fill in every variable marked `sync: false` when Render asks for them.
 services:
   - type: web
-    name: portfolio-chatbot-backend
+    name: ai-knowledge-assistant
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    # --forwarded-allow-ips: Render's proxy sets X-Forwarded-For; without trusting it,
+    # every visitor shares the proxy's IP and the per-IP rate limit becomes global.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --forwarded-allow-ips="*"
     healthCheckPath: /health
     envVars:
       - key: APP_ENV
         value: production
-      - key: APP_NAME
-        value: Portfolio AI Chatbot
-      - key: API_PREFIX
-        value: /api/v1
-      - key: QDRANT_COLLECTION_NAME
-        value: portfolio_knowledge
-      - key: EMBEDDING_MODEL
-        value: BAAI/bge-small-en-v1.5
-      - key: SYNC_ENABLED
-        value: "true"
-      - key: FRONTEND_ORIGINS
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: APP_TITLE
         sync: false
-      - key: SUPABASE_URL
+      - key: ASSISTANT_PERSONA
         sync: false
-      - key: SUPABASE_SECRET_KEY
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: GROQ_API_KEY
         sync: false
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
       - key: QDRANT_URL
         sync: false
       - key: QDRANT_API_KEY
         sync: false
-      - key: LLM_PROVIDER
+      - key: QDRANT_COLLECTION_NAME
+        value: knowledge_base
+      - key: SUPABASE_URL
         sync: false
-      - key: LLM_API_KEY
+      - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
-      - key: LLM_MODEL
-        sync: false
-      - key: ADMIN_API_TOKEN
-        sync: false
+      - key: SUPABASE_TABLE_NAME
+        value: portfolio_knowledge_base
+      - key: ALLOWED_ORIGINS
+        value: "*"
       - key: WEBHOOK_SECRET
-        sync: false
+        generateValue: true
+      - key: EMBEDDING_MODEL
+        value: BAAI/bge-small-en-v1.5

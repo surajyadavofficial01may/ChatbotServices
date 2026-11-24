@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Admin Studio · {{APP_TITLE}}</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2310b981' stroke-width='2.2' stroke-linecap='round'%3E%3Cellipse cx='12' cy='5' rx='8' ry='3'/%3E%3Cpath d='M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5'/%3E%3Cpath d='M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6'/%3E%3C/svg%3E">
+  <script>
+    // Apply the theme before first paint (no flash). Storage may be blocked: ignore.
+    try {
+      const saved = localStorage.getItem("theme");
+      if (saved === "dark" || (!saved && matchMedia("(prefers-color-scheme: dark)").matches)) {
+        document.documentElement.classList.add("dark");
+      }
+    } catch {}
+  </script>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: { extend: { fontFamily: { mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"] } } },
+    };
+  </script>
+  <style>
+    [hidden] { display: none !important; }
+    :root { color-scheme: light; }
+    :root.dark { color-scheme: dark; } /* native scrollbars and controls follow the theme */
+    dialog::backdrop { background: rgb(9 9 11 / 0.55); backdrop-filter: blur(2px); }
+    .scroll-thin { scrollbar-width: thin; }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+  </style>
+</head>
+<body class="h-full bg-zinc-50 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100" data-api="{{API_PREFIX}}">
+
+  <!-- ===================== Login gate ===================== -->
+  <main id="login" hidden class="grid min-h-full place-items-center px-4 py-12">
+    <form id="login-form" class="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div class="mb-6 flex items-center gap-3">
+        <div class="grid h-10 w-10 place-items-center rounded-xl bg-zinc-900 text-white dark:bg-white dark:text-zinc-900" data-icon="database"></div>
+        <div>
+          <h1 class="text-base font-semibold leading-tight">{{APP_TITLE}}</h1>
+          <p class="text-sm text-zinc-500 dark:text-zinc-400">Admin Studio</p>
+        </div>
+      </div>
+      <label for="password" class="mb-1.5 block text-sm font-medium">Admin password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required autofocus
+        class="block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:border-zinc-500 dark:focus:ring-white/10">
+      <p class="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">The <code class="font-mono">ADMIN_PASSWORD</code> value from your server's environment.</p>
+      <p id="login-error" role="alert" class="mt-3 hidden rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300"></p>
+      <button type="submit" class="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 disabled:opacity-60 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200 dark:focus-visible:ring-white dark:focus-visible:ring-offset-zinc-900">
+        Sign in
+      </button>
+    </form>
+  </main>
+
+  <!-- ===================== App ===================== -->
+  <div id="app" hidden class="flex min-h-full flex-col">
+    <header class="sticky top-0 z-30 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
+      <div class="mx-auto flex max-w-[1400px] flex-wrap items-center gap-3 px-4 py-3 lg:px-6">
+        <div class="flex min-w-0 items-center gap-3">
+          <div class="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-zinc-900 text-white dark:bg-white dark:text-zinc-900" data-icon="database"></div>
+          <div class="min-w-0">
+            <p class="truncate text-sm font-semibold leading-tight">{{APP_TITLE}}</p>
+            <p class="text-xs text-zinc-500 dark:text-zinc-400">Admin Studio</p>
+          </div>
+        </div>
+        <div class="ml-auto flex flex-wrap items-center gap-2">
+          <span id="sync-badge" class="hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs sm:inline-flex"></span>
+          <button id="sync-btn" type="button" class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70 dark:focus-visible:ring-offset-zinc-950">
+            <span data-icon="refresh"></span><span>Sync to Qdrant</span>
+          </button>
+          <button id="tester-btn" type="button" class="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium shadow-sm transition hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800">
+            <span data-icon="message"></span><span class="hidden sm:inline">Test endpoint</span>
+          </button>
+          <button id="theme-btn" type="button" aria-label="Toggle dark mode" class="rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white" data-icon="theme"></button>
+          <button id="logout-btn" type="button" aria-label="Sign out" title="Sign out" class="rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white" data-icon="logout"></button>
+        </div>
+      </div>
+
+      <!-- Sync progress -->
+      <div id="sync-progress" hidden class="border-t border-zinc-200 bg-zinc-50/80 dark:border-zinc-800 dark:bg-zinc-900/60">
+        <ol class="mx-auto flex max-w-[1400px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5 text-sm lg:px-6" aria-live="polite">
+          <li data-step="fetching" class="flex items-center gap-2"><span class="step-dot"></span>Fetching Supabase</li>
+          <li aria-hidden="true" class="hidden h-px w-8 bg-zinc-300 sm:block dark:bg-zinc-700"></li>
+          <li data-step="embedding" class="flex items-center gap-2"><span class="step-dot"></span>Generating embeddings</li>
+          <li aria-hidden="true" class="hidden h-px w-8 bg-zinc-300 sm:block dark:bg-zinc-700"></li>
+          <li data-step="upserting" class="flex items-center gap-2"><span class="step-dot"></span>Upserting to Qdrant</li>
+        </ol>
+      </div>
+    </header>
+
+    <main class="mx-auto w-full max-w-[1500px] flex-1 px-4 py-6 lg:px-6">
+      <section aria-labelledby="kb-title" class="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+        <h2 id="kb-title" class="sr-only">Knowledge base</h2>
+
+        <!-- One tab per category (built from the server's schema) -->
+        <div class="flex items-end gap-2 border-b border-zinc-200 px-3 pt-2 dark:border-zinc-800">
+          <nav id="tabs" role="tablist" aria-label="Knowledge base tabs" class="scroll-thin -mb-px flex min-w-0 flex-1 gap-1 overflow-x-auto"></nav>
+          <button id="reload-btn" type="button" aria-label="Reload from Supabase" title="Reload from Supabase" class="mb-1.5 rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white" data-icon="reload"></button>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+          <label class="relative block w-full sm:w-72">
+            <span class="sr-only">Search this tab</span>
+            <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" data-icon="search"></span>
+            <input id="search" type="search" placeholder="Search this tab…  ( / )"
+              class="block w-full rounded-lg border border-zinc-300 bg-white py-2 pl-9 pr-3 text-sm outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:ring-white/10">
+          </label>
+          <button id="add-row-btn" type="button" class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium shadow-sm transition hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800">
+            <span data-icon="plus"></span>Add row
+          </button>
+          <button id="bulk-btn" type="button" class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:text-zinc-300 dark:hover:bg-zinc-800">
+            <span data-icon="upload"></span>Bulk JSON import
+          </button>
+          <div class="ml-auto flex items-center gap-2">
+            <span id="dirty-count" class="text-xs font-medium text-amber-700 dark:text-amber-400" aria-live="polite"></span>
+            <button id="discard-btn" type="button" hidden class="rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">Discard</button>
+            <button id="save-btn" type="button" disabled class="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200 dark:focus-visible:ring-white dark:focus-visible:ring-offset-zinc-900">
+              <span data-icon="save"></span>Save changes
+            </button>
+          </div>
+        </div>
+
+        <!-- Spreadsheet grid -->
+        <div id="grid-wrap" tabindex="0" aria-label="Knowledge base grid. Paste spreadsheet rows here." class="scroll-thin max-h-[calc(100vh-17rem)] min-h-[16rem] overflow-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-400">
+          <table class="w-full min-w-[1040px] border-separate border-spacing-0 text-sm">
+            <thead id="grid-head" class="sticky top-0 z-10 bg-zinc-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400"></thead>
+            <tbody id="grid-body"></tbody>
+          </table>
+          <div id="empty" hidden class="px-5 py-14 text-center">
+            <div class="mx-auto mb-3 grid h-10 w-10 place-items-center rounded-full bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400" data-icon="database"></div>
+            <p id="empty-title" class="text-sm font-medium"></p>
+            <p id="empty-text" class="mx-auto mt-1 max-w-md text-sm text-zinc-500 dark:text-zinc-400"></p>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-zinc-200 px-4 py-2.5 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+          <span id="kb-count">Loading…</span>
+          <span class="hidden sm:inline">·</span>
+          <span><strong class="font-medium text-zinc-700 dark:text-zinc-300">Tip:</strong> copy rows from Google Sheets or Excel (columns <code class="font-mono">id · title · content · url · active</code>, or with a header row) and paste anywhere in the grid.</span>
+          <span class="ml-auto hidden sm:inline"><kbd class="font-mono">Ctrl</kbd>+<kbd class="font-mono">S</kbd> saves</span>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ===================== Bulk import dialog ===================== -->
+  <dialog id="bulk-dialog" aria-labelledby="bulk-title" class="w-[min(720px,calc(100vw-2rem))] rounded-xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100">
+    <form method="dialog" id="bulk-form" class="flex max-h-[85vh] flex-col">
+      <div class="border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
+        <h2 id="bulk-title" class="text-sm font-semibold">Bulk JSON import</h2>
+        <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">Paste a JSON array of rows, or a <code class="font-mono">{"records": [...]}</code> file (id, category, title, content, url, active, sort_order). Existing IDs are updated; new IDs are added.</p>
+      </div>
+      <div class="flex-1 space-y-3 overflow-auto px-5 py-4">
+        <div class="flex flex-wrap items-center gap-2">
+          <label class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium transition hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800">
+            <span data-icon="file"></span>Load .json file
+            <input id="bulk-file" type="file" accept=".json,application/json" class="sr-only">
+          </label>
+          <span id="bulk-summary" class="text-xs text-zinc-500 dark:text-zinc-400"></span>
+        </div>
+        <label for="bulk-text" class="sr-only">JSON</label>
+        <textarea id="bulk-text" rows="14" spellcheck="false" placeholder='[{"id": "PRJ004", "category": "Projects", "title": "…", "content": "…", "url": "", "active": true, "sort_order": 4}]'
+          class="block w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:border-zinc-500 focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:ring-white/10"></textarea>
+        <ul id="bulk-errors" hidden class="max-h-40 space-y-1 overflow-auto rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/50 dark:text-red-300"></ul>
+      </div>
+      <div class="flex items-center justify-end gap-2 border-t border-zinc-200 px-5 py-3.5 dark:border-zinc-800">
+        <button value="cancel" formnovalidate class="rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">Cancel</button>
+        <button id="bulk-submit" type="button" class="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-700 disabled:opacity-60 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200">Import</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ===================== Confirm dialog ===================== -->
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title" class="w-[min(420px,calc(100vw-2rem))] rounded-xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100">
+    <form method="dialog" class="p-5">
+      <h2 id="confirm-title" class="text-sm font-semibold">Delete entry?</h2>
+      <p id="confirm-text" class="mt-1.5 text-sm text-zinc-600 dark:text-zinc-400"></p>
+      <div class="mt-5 flex justify-end gap-2">
+        <button value="cancel" class="rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">Cancel</button>
+        <button value="confirm" class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-red-500">Delete</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ===================== Chat tester drawer ===================== -->
+  <div id="tester-backdrop" hidden class="fixed inset-0 z-40 bg-zinc-950/40 lg:hidden"></div>
+  <aside id="tester" aria-labelledby="tester-title" aria-hidden="true" inert
+    class="fixed inset-y-0 right-0 z-50 flex w-full max-w-md translate-x-full flex-col border-l border-zinc-200 bg-white shadow-2xl transition-transform duration-200 dark:border-zinc-800 dark:bg-zinc-900">
+    <div class="flex items-center gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+      <div class="min-w-0">
+        <h2 id="tester-title" class="text-sm font-semibold">Test endpoint</h2>
+        <p class="truncate font-mono text-xs text-zinc-500 dark:text-zinc-400">POST <span id="tester-endpoint"></span></p>
+      </div>
+      <button id="tester-reset" type="button" class="ml-auto rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">New session</button>
+      <button id="tester-close" type="button" aria-label="Close tester" class="rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-100 dark:hover:bg-zinc-800" data-icon="close"></button>
+    </div>
+    <div id="tester-log" class="scroll-thin flex-1 space-y-4 overflow-y-auto px-4 py-4" aria-live="polite">
+      <p id="tester-hint" class="rounded-lg border border-dashed border-zinc-300 px-3 py-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">Ask something your knowledge base covers. Sync first so new entries are searchable.</p>
+    </div>
+    <form id="tester-form" class="border-t border-zinc-200 p-3 dark:border-zinc-800">
+      <div class="flex items-end gap-2">
+        <label for="tester-input" class="sr-only">Message</label>
+        <textarea id="tester-input" rows="2" maxlength="1000" placeholder="Ask a question…  (Enter to send)"
+          class="block min-h-[2.75rem] w-full resize-none rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500 focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:ring-white/10"></textarea>
+        <button type="submit" aria-label="Send" class="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-zinc-900 text-white transition hover:bg-zinc-700 disabled:opacity-60 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200" data-icon="send"></button>
+      </div>
+    </form>
+  </aside>
+
+  <!-- ===================== Toasts ===================== -->
+  <!-- Bottom-left: never covers the chat tester's input on the right. -->
+  <div id="toasts" class="pointer-events-none fixed bottom-4 left-4 z-[60] flex w-[min(380px,calc(100vw-2rem))] flex-col gap-2" aria-live="polite"></div>
+
+  <script type="module" src="/dataentry/assets/dataentry.js"></script>
+</body>
+</html>

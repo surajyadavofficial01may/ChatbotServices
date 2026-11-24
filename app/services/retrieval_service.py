@@ -11,7 +11,7 @@ from qdrant_client import QdrantClient
 
 from app.core.config import settings
 from app.services import embedding_service, qdrant_service, rerank_service
-from app.services.llm_service import NO_INFO_ANSWER, LLMServiceError, generate_answer
+from app.services.llm_service import LLMServiceError, generate_answer
 from app.services.query_service import QueryPlan, plan_query
 
 logger = logging.getLogger(__name__)
@@ -19,59 +19,69 @@ logger = logging.getLogger(__name__)
 CITATION = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
 # gpt-oss models often fall back to their native "【1】" / "【1†L1-L3】" citation style.
 NATIVE_CITATION = re.compile(r"【(\d+)(?:†[^】]*)?】")
+SNIPPET_CHARS = 500
 
 
 @dataclass
 class Candidate:
-    """A retrieved record and the scores that ranked it.
+    """A retrieved chunk and the scores that ranked it.
 
     Attributes:
-        record_id: Source record id.
-        category: Knowledge-base category.
-        title: Record title.
-        content: Record text.
-        url: Optional source link.
+        entry_id: Source entry id.
+        chunk_index: Position of the chunk within its entry.
+        category: Entry category.
+        title: Entry title.
+        content: Chunk text.
+        url: Optional source link ("" for none).
         rrf: Reciprocal Rank Fusion score across retrievers.
-        dense_score: Cosine similarity from the dense retriever, if it found the record.
+        dense_score: Cosine similarity from a dense retriever, if one found the chunk.
         rerank_score: Cross-encoder score, when reranking is enabled.
-        ranks: Rank of the record in each retriever that returned it.
+        ranks: Rank of the chunk in each retriever that returned it.
     """
 
-    record_id: str
+    entry_id: str
+    chunk_index: int
     category: str
     title: str
     content: str
-    url: str | None
+    url: str
     rrf: float = 0.0
     dense_score: float | None = None
     rerank_score: float | None = None
     ranks: dict[str, int] = field(default_factory=dict)
 
+    @property
+    def key(self) -> str:
+        """Unique id of the chunk."""
+        return f"{self.entry_id}#{self.chunk_index}"
+
 
 def answer_question(question: str, history: list[dict[str, str]] | None = None) -> dict[str, Any]:
-    """Answer a visitor's question from the knowledge base.
+    """Answer a question from the knowledge base.
 
     Args:
-        question: The visitor's question.
+        question: The user's question.
         history: Optional prior turns, used only to resolve follow-up references.
 
     Returns:
-        `{"success", "answer", "sources"}` — sources are the records the answer cites,
-        in citation order — plus `"debug"` when `RAG_DEBUG` is on.
+        `{"reply", "sources"}` — sources are the chunks the reply cites, in citation
+        order — plus `"debug"` when `RAG_DEBUG` is on.
 
     Raises:
         ExternalServiceError: Subclasses (Qdrant, embedding, LLM) when a dependency fails.
     """
     started = time.perf_counter()
     trace: dict[str, Any] = {}
+    client = qdrant_service.get_client()
 
     t = time.perf_counter()
-    plan = plan_query(question, history)
+    categories = qdrant_service.list_categories(client, embedding_service.embedding_version())
+    plan = plan_query(question, history, categories)
     trace["plan_ms"] = _ms(t)
 
-    candidates = retrieve(plan, trace=trace)
+    candidates = retrieve(plan, client, trace=trace)
     if not candidates:
-        answer, sources = NO_INFO_ANSWER, []
+        reply, sources = settings.no_answer_message, []
     else:
         context, used, trace["context_tokens"] = build_context(candidates, settings.max_context_tokens)
         t = time.perf_counter()
@@ -79,16 +89,16 @@ def answer_question(question: str, history: list[dict[str, str]] | None = None) 
         trace["llm_ms"] = _ms(t)
         if not raw:
             raise LLMServiceError("LLM returned an empty answer.")
-        answer, cited = apply_citations(raw, used)
-        # Sources = evidence the answer actually cited. An uncited reply (refusal,
-        # declined injection) returns none rather than every retrieved record.
-        sources = [] if _is_refusal(answer) else cited
+        reply, cited = apply_citations(raw, used)
+        # Sources = evidence the reply actually cited. An uncited reply (refusal,
+        # declined injection) returns none rather than every retrieved chunk.
+        sources = [] if _is_refusal(reply) else cited
 
     trace["total_ms"] = _ms(started)
     trace["refused"] = not sources
     _log_trace(plan, trace)
 
-    result: dict[str, Any] = {"success": True, "answer": answer, "sources": [_source(c) for c in sources]}
+    result: dict[str, Any] = {"reply": reply, "sources": [_source(c) for c in sources]}
     if settings.rag_debug:
         result["debug"] = {
             "retrieval_query": plan.retrieval_query,
@@ -99,18 +109,16 @@ def answer_question(question: str, history: list[dict[str, str]] | None = None) 
     return result
 
 
-def retrieve(
-    plan: QueryPlan, client: QdrantClient | None = None, trace: dict[str, Any] | None = None
-) -> list[Candidate]:
+def retrieve(plan: QueryPlan, client: QdrantClient, trace: dict[str, Any] | None = None) -> list[Candidate]:
     """Retrieve, rank and gate evidence for a query plan.
 
     Args:
         plan: The query plan.
-        client: Qdrant client (defaults to the shared cloud client).
+        client: Qdrant client.
         trace: Optional dict that receives timings and diagnostics.
 
     Returns:
-        The records that passed the evidence gate, best first, capped at top-k.
+        The chunks that passed the evidence gate, best first, capped at top-k.
     """
     trace = trace if trace is not None else {}
     candidates, reranked = rank_candidates(plan, client, trace)
@@ -120,7 +128,7 @@ def retrieve(
     if settings.rag_debug:
         trace["candidates"] = [
             {
-                "id": c.record_id,
+                "id": c.key,
                 "title": c.title,
                 "ranks": c.ranks,
                 "rrf": round(c.rrf, 5),
@@ -137,7 +145,7 @@ def select(candidates: list[Candidate], reranked: bool, list_mode: bool) -> list
     """Apply the evidence gate and top-k.
 
     With a reranker the cross-encoder score decides relevance; without one, the dense
-    cosine does (records found only by BM25 have no cosine and are dropped).
+    cosine does (chunks found only by BM25 have no cosine and are dropped).
 
     Args:
         candidates: Candidates in relevance order.
@@ -159,13 +167,13 @@ def select(candidates: list[Candidate], reranked: bool, list_mode: bool) -> list
 
 
 def rank_candidates(
-    plan: QueryPlan, client: QdrantClient | None = None, trace: dict[str, Any] | None = None
+    plan: QueryPlan, client: QdrantClient, trace: dict[str, Any] | None = None
 ) -> tuple[list[Candidate], bool]:
     """Rank every candidate before the evidence gate.
 
     Args:
         plan: The query plan.
-        client: Qdrant client (defaults to the shared cloud client).
+        client: Qdrant client.
         trace: Optional dict that receives timings and diagnostics.
 
     Returns:
@@ -176,7 +184,6 @@ def rank_candidates(
         EmbeddingServiceError: If a local model fails.
     """
     trace = trace if trace is not None else {}
-    client = client or qdrant_service.get_client()
     version = embedding_service.embedding_version()
 
     t = time.perf_counter()
@@ -192,7 +199,7 @@ def rank_candidates(
     )
     trace["search_ms"] = _ms(t)
     if not results["dense"]:
-        logger.warning("No indexed documents for the current embedding version; run a sync.")
+        logger.warning("No indexed chunks for the current embedding version; run a sync.")
 
     candidates = fuse(results, settings.rrf_k)[: settings.retrieval_candidates]
 
@@ -210,7 +217,7 @@ def rank_candidates(
 
 
 def fuse(results: dict[str, list[Any]], k: int) -> list[Candidate]:
-    """Merge retriever results with Reciprocal Rank Fusion, keyed by record id.
+    """Merge retriever results with Reciprocal Rank Fusion, keyed by chunk.
 
     Args:
         results: Retriever name to ranked Qdrant points.
@@ -219,20 +226,28 @@ def fuse(results: dict[str, list[Any]], k: int) -> list[Candidate]:
     Returns:
         Unique candidates sorted by fused score.
     """
-    by_id: dict[str, Candidate] = {}
+    by_key: dict[str, Candidate] = {}
     for name, points in results.items():
         for rank, point in enumerate(points, start=1):
-            payload = point.payload
-            candidate = by_id.get(payload["record_id"])
+            p = point.payload
+            # record_id: points written before chunking keep answering until the next sync replaces them.
+            entry_id = p.get("entry_id") or p["record_id"]
+            key = f"{entry_id}#{p.get('chunk_index', 0)}"
+            candidate = by_key.get(key)
             if candidate is None:
-                candidate = by_id[payload["record_id"]] = Candidate(
-                    payload["record_id"], payload["category"], payload["title"], payload["content"], payload.get("url")
+                candidate = by_key[key] = Candidate(
+                    entry_id,
+                    p.get("chunk_index", 0),
+                    p["category"],
+                    p["title"],
+                    p["content"],
+                    p.get("url") or "",
                 )
             candidate.rrf += 1.0 / (k + rank)
             candidate.ranks[name] = rank
             if name != "sparse":  # dense and category-filtered dense lists share the same cosine
                 candidate.dense_score = max(point.score, candidate.dense_score or point.score)
-    return sorted(by_id.values(), key=lambda c: c.rrf, reverse=True)
+    return sorted(by_key.values(), key=lambda c: c.rrf, reverse=True)
 
 
 def build_context(candidates: list[Candidate], max_tokens: int) -> tuple[str, list[Candidate], int]:
@@ -290,7 +305,7 @@ def apply_citations(answer: str, used: list[Candidate]) -> tuple[str, list[Candi
 
 
 def preload_models() -> None:
-    """Load all configured models so the first visitor doesn't pay the loading cost.
+    """Load all configured models so the first user doesn't pay the loading cost.
 
     Failures are logged, not raised: models then load on the first request instead.
     """
@@ -305,13 +320,21 @@ def preload_models() -> None:
 
 
 def _is_refusal(answer: str) -> bool:
-    """Return True if the answer is exactly the standard "not available" sentence."""
-    return answer.strip().strip("\"'").rstrip(".") == NO_INFO_ANSWER.rstrip(".")
+    """Return True if the answer is exactly the configured "not available" message."""
+    return answer.strip().strip("\"'").rstrip(".") == settings.no_answer_message.strip().rstrip(".")
 
 
-def _source(c: Candidate) -> dict[str, str | None]:
+def _source(c: Candidate) -> dict[str, Any]:
     """Serialise a candidate as an API source."""
-    return {"category": c.category, "title": c.title, "url": c.url}
+    snippet = c.content if len(c.content) <= SNIPPET_CHARS else c.content[: SNIPPET_CHARS - 1].rstrip() + "…"
+    return {
+        "entry_id": c.entry_id,
+        "title": c.title,
+        "category": c.category,
+        "url": c.url,
+        "snippet": snippet,
+        "score": _round(c.rerank_score if c.rerank_score is not None else c.dense_score),
+    }
 
 
 def _score(c: Candidate) -> float:
@@ -320,7 +343,7 @@ def _score(c: Candidate) -> float:
 
 
 def _round(value: float | None) -> float | None:
-    """Round a score for debug output."""
+    """Round a score for output."""
     return round(value, 4) if value is not None else None
 
 
@@ -336,7 +359,7 @@ def _log_trace(plan: QueryPlan, trace: dict[str, Any]) -> None:
         rewritten=plan.rewritten,
         categories=plan.categories,
         list_mode=plan.list_mode,
-        llm=f"{settings.llm_provider}:{settings.llm_model}",
+        llm=f"groq:{settings.groq_model}",
         embedding=settings.embedding_model,
     )
     logger.info("rag_request %s", json.dumps(summary))

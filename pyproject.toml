@@ -1,12 +1,12 @@
 [project]
-name = "portfolio-rag-chatbot"
-version = "1.0.0"
-description = "Free-tier friendly RAG chatbot backend for a personal portfolio: FastAPI, Qdrant, FastEmbed and Groq."
+name = "ai-knowledge-assistant"
+version = "2.0.0"
+description = "Plug-and-play RAG chatbot backend: manage knowledge in a password-protected admin studio, sync Supabase to Qdrant Cloud, answer with Groq."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 # Dependencies are pinned in requirements.txt (runtime) and requirements-dev.txt (tooling),
-# which is what Render and CI install.
+# which is what Docker, Render, Railway and CI install.
 
 [tool.ruff]
 line-length = 120

@@ -12,4 +12,6 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=int(os.getenv("PORT", "8000")),
         reload=settings.app_env != "production",
+        # Only app code: editing tests, docs, data or benchmark output must not restart the server.
+        reload_dirs=["app"],
     )

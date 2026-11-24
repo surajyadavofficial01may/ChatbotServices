@@ -14,8 +14,8 @@ from app.core.exceptions import ExternalServiceError
 
 logger = logging.getLogger(__name__)
 
-# Bump whenever data_fetcher.embedding_text changes shape, so the next sync
-# re-embeds every record instead of mixing old and new text formats.
+# Bump whenever chunking.embedding_text changes shape, so the next sync
+# re-embeds every entry instead of mixing old and new text formats.
 TEXT_TEMPLATE_VERSION = "2"
 
 # fastembed's query_embed() applies no instruction prefix, so models trained with

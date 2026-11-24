@@ -6,12 +6,31 @@ import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 
+from app.api import dependencies, routes_chat
 from app.core.config import settings
-from app.services import embedding_service
-from app.services.data_fetcher import build_documents
-from app.services.sync_service import index_documents
+from app.models.knowledge import KnowledgeEntryIn
+from app.services import embedding_service, qdrant_service
+from app.services.chunking import build_chunks
+from app.services.sync_service import index_chunks
 
 DIM = 32
+
+
+@pytest.fixture(autouse=True)
+def offline(monkeypatch):
+    """No test may reach a real service: a developer's .env is loaded by Settings, so blank it."""
+    for name in ("supabase_url", "supabase_service_role_key", "qdrant_url", "qdrant_api_key", "groq_api_key"):
+        monkeypatch.setattr(settings, name, "")
+    monkeypatch.setattr(settings, "admin_password", "")
+    monkeypatch.setattr(settings, "webhook_secret", "")
+    monkeypatch.setattr(settings, "no_answer_message", "That information is not available in the knowledge base.")
+    qdrant_service.get_client.cache_clear()
+    qdrant_service.clear_category_cache()
+    dependencies.chat_rate_limit.reset()
+    dependencies.login_rate_limit.reset()
+    routes_chat._sessions.clear()
+    yield
+    qdrant_service.clear_category_cache()
 
 
 def _tokens(text: str) -> list[str]:
@@ -39,80 +58,29 @@ def fake_sparse(text: str) -> qmodels.SparseVector:
     return qmodels.SparseVector(indices=list(counts), values=list(counts.values()))
 
 
-SAMPLE_RECORDS = [
-    {
-        "id": "PER001",
-        "category": "Personal_Details",
-        "title": "Biography",
-        "content": "Alex is a backend engineer based in Pune.",
-        "url": None,
-        "active": True,
-    },
-    {
-        "id": "PER002",
-        "category": "Personal_Details",
-        "title": "Education",
-        "content": "Alex studied computer science at Pune University with a CGPA of 9.1.",
-        "url": None,
-        "active": True,
-    },
-    {
-        "id": "EXP001",
-        "category": "Work_Experience",
-        "title": "Engineer at Acme",
-        "content": "Alex works at Acme building payment APIs.",
-        "url": None,
-        "active": True,
-    },
-    {
-        "id": "SK001",
-        "category": "Technical_Skills",
-        "title": "Python",
-        "content": "Alex writes Python and FastAPI services.",
-        "url": None,
-        "active": True,
-    },
-    {
-        "id": "PRJ001",
-        "category": "Projects",
-        "title": "Orbit",
-        "content": "Orbit is a voice assistant project for Windows.",
-        "url": "https://example.com/orbit",
-        "active": True,
-    },
-    {
-        "id": "PRJ002",
-        "category": "Projects",
-        "title": "Ledger",
-        "content": "Ledger is a budgeting project with a React frontend.",
-        "url": None,
-        "active": True,
-    },
-    {
-        "id": "ART001",
-        "category": "Articles",
-        "title": "On travel",
-        "content": "An article about travel and culture.",
-        "url": None,
-        "active": True,
-    },
-    {
-        "id": "SOC001",
-        "category": "Social_Links",
-        "title": "GitHub",
-        "content": "Alex's GitHub profile is github.com/alex.",
-        "url": "https://github.com/alex",
-        "active": True,
-    },
-    {
-        "id": "FAQ001",
-        "category": "FAQs",
-        "title": "Who is Alex?",
-        "content": "Alex is a backend engineer at Acme.",
-        "url": None,
-        "active": True,
-    },
+def entry(entry_id: str, category: str, title: str, content: str, **extra) -> dict:
+    return {"id": entry_id, "category": category, "title": title, "content": content, **extra}
+
+
+SAMPLE_ENTRIES = [
+    entry("PER001", "Personal_Details", "About Sam", "Sam Lee is a mobile developer who builds a shared calendar app."),
+    entry("PER002", "Personal_Details", "Education", "Sam Lee studied informatics at the University of Oslo."),
+    entry("PRJ001", "Projects", "Zephyr sync engine", "Zephyr is the engine that syncs calendars offline."),
+    entry("PRJ002", "Projects", "Reminders", "Reminders can be sent by email or push notification."),
+    entry(
+        "ART001",
+        "Articles",
+        "Pricing calendars",
+        "An article on why the Team plan costs 6 dollars per user per month.",
+        url="https://example.com/pricing",
+    ),
+    entry("ART002", "Articles", "Refunds", "An article about refunds within 14 days of the first payment."),
+    entry("FAQ001", "FAQs", "Who makes the app?", "The calendar app is made by a small remote team."),
 ]
+
+
+def sample_entries() -> list[KnowledgeEntryIn]:
+    return [KnowledgeEntryIn.model_validate(e) for e in SAMPLE_ENTRIES]
 
 
 @pytest.fixture
@@ -132,5 +100,5 @@ def fake_models(monkeypatch):
 @pytest.fixture
 def indexed_client(fake_models):
     client = QdrantClient(":memory:")
-    index_documents(client, build_documents(SAMPLE_RECORDS))
+    index_chunks(client, build_chunks(sample_entries()))
     return client

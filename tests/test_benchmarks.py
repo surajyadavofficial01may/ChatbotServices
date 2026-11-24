@@ -1,7 +1,9 @@
 """Benchmark tests: metric correctness (offline) and the retrieval-quality regression gate (real models).
 
-The gate's floors sit just under the measured production numbers
-(docs/rag-improvement-roadmap.md), so a change that makes retrieval worse fails here.
+The gate runs the production config over the shipped sample (data/sample_entries.json +
+benchmarks/eval-cases.json). Its floors sit just under the measured numbers (hit@5 1.0,
+MRR 0.979, nDCG@5 0.963, recall@5 0.979, list recall@5 0.875), so a change that makes retrieval
+worse fails here.
 """
 
 import logging
@@ -17,6 +19,7 @@ real_models = pytest.mark.skipif(
     os.getenv("RUN_MODEL_TESTS") != "1", reason="Downloads the real FastEmbed models; set RUN_MODEL_TESTS=1 to enable."
 )
 
+NO_ANSWER = "That information is not available in the knowledge base."
 
 # ----------------------------------------------------------------------------
 # metrics (offline)
@@ -46,18 +49,19 @@ def test_reciprocal_rank_uses_first_relevant_position():
 
 
 def test_refusal_detection_ignores_partial_answers():
-    assert metrics.is_refusal("That information is not available in the portfolio knowledge base.")
+    assert metrics.is_refusal(NO_ANSWER, NO_ANSWER)
     long_partial = (
-        "He built EVEE [1] and Orbit [2]. " * 8 + "His salary is not available in the portfolio knowledge base."
+        "Pro costs $8 [1] and Business $15 [2]. " * 8 + "Enterprise pricing is not available in the knowledge base."
     )
-    assert not metrics.is_refusal(long_partial)
-    assert metrics.is_refusal("I’m sorry, but I can’t comply with that.")
+    assert not metrics.is_refusal(long_partial, NO_ANSWER)
+    assert metrics.is_refusal("I’m sorry, but I can’t comply with that.", NO_ANSWER)
+    assert metrics.is_refusal("Sorry, I don't know that one.", "Sorry, I don't know that one.")
 
 
 def test_fact_recall_and_citation_parsing():
-    assert metrics.fact_recall("CGPA of 8.35 at KIIT", ["8.35", "kiit"]) == 1.0
-    assert metrics.fact_recall("CGPA of 8.35", ["8.35", "KIIT"]) == 0.5
-    assert metrics.fact_recall("accuracy of 81 % using Jira Fixer", ["81%", "Jira Fixer"]) == 1.0
+    assert metrics.fact_recall("Refunds within 14 days of payment", ["14 days", "payment"]) == 1.0
+    assert metrics.fact_recall("Refunds within 14 days", ["14 days", "PAYPAL"]) == 0.5
+    assert metrics.fact_recall("uptime of 99.9 % for Acme Notes", ["99.9%", "Acme Notes"]) == 1.0
     assert metrics.cited_indices("A [1] and B [3].") == [1, 3]
 
 
@@ -82,8 +86,8 @@ def production_results():
 def test_overall_retrieval_quality_does_not_regress(production_results):
     assert production_results["hit@5"] >= 0.95
     assert production_results["mrr"] >= 0.90
-    assert production_results["ndcg@5"] >= 0.85
-    assert production_results["recall@5"] >= 0.85
+    assert production_results["ndcg@5"] >= 0.90
+    assert production_results["recall@5"] >= 0.90
 
 
 @real_models
@@ -95,7 +99,7 @@ def test_exact_identifiers_and_typos_stay_perfect(production_results):
 @real_models
 def test_list_questions_keep_their_routing_gain(production_results):
     assert production_results["by_type"]["list"]["hit@5"] == 1.0
-    assert production_results["by_type"]["list"]["recall@5"] >= 0.6
+    assert production_results["by_type"]["list"]["recall@5"] >= 0.85
 
 
 @real_models

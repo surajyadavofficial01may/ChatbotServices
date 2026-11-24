@@ -1,9 +1,11 @@
 # RAG Improvement Roadmap — Decisions, Results, Next Steps
 
+> **Context:** engineering notes from this project's first deployment, a single-person portfolio assistant (the owner is called "Alex" here). That corpus and its labels are private and not shipped; the shipped benchmark (`python -m benchmarks.evaluate`) runs on `data/sample_entries.json`. Re-run on that private corpus, the current generic pipeline reproduces the final production numbers in the results below exactly.
+
 Companion to [rag-architecture-assessment.md](rag-architecture-assessment.md) (the
 "before" picture) and [rag-benchmark-baseline.md](rag-benchmark-baseline.md) (the
 baseline numbers). Everything here was measured with `benchmarks/evaluate.py` on
-the same 51-case dataset and 35-record corpus. Raw output: `benchmarks/results/`.
+the same 51-case dataset and 35-record corpus (both private; see the note above).
 
 ## Before / after
 
@@ -72,8 +74,8 @@ facts are matched whitespace-insensitively. It also declines injections with
 
 **Routing lesson.** The first version routed *every* keyword match. That lifted
 list recall but collapsed multi-part questions (Hit@5 1.00 → 0.33):
-"What technologies did he use for VAssureAI?" was sent to Technical Skills and
-the VAssureAI records were crowded out. Routing now applies only to "list all X"
+"What technologies did he use for Tidewatch?" was sent to Technical Skills and
+the Tidewatch records were crowded out. Routing now applies only to "list all X"
 questions, which fixed both.
 
 ### Embedding model comparison (dense-only, same text and prefix handling)
@@ -112,7 +114,7 @@ the model fails; `-11` is its calibrated gate for MiniLM-L-6.
 ### Evidence gate
 
 Every record names the owner, so off-topic personal questions score 0.47–0.66
-cosine while the weakest correct answer (DB-Compare, found via BM25) scores 0.477.
+cosine while the weakest correct answer (Tidewatch, found via BM25) scores 0.477.
 No cosine gate can separate them without refusing real questions. The 0.45 floor
 is kept because it loses zero answers and trims noise, but the actual
 out-of-scope guard is the answer prompt's refusal rule (measured: 100%).
@@ -124,7 +126,7 @@ out-of-scope guard is the answer prompt's refusal rule (measured: 100%).
   hardcoded 384; thread-safe single model load; LRU query cache; an
   *embedding version* stamped on every vector and used to filter queries, so
   vectors from different models never mix.
-- **Ingestion** (`sync_service.index_documents`): embeds "category: title\ncontent";
+- **Ingestion** (`chunking.embedding_text`, used by `sync_service.index_chunks`): embeds "category: title\ncontent";
   fingerprint = embedding version + all indexed fields, so only changed records are
   re-embedded and a model change re-embeds everything; schema check recreates
   the collection on dimension/vector-layout changes; runs off the event loop.

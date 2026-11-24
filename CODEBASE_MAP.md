@@ -8,81 +8,93 @@ before changing anything; when you move code, update this file in the same chang
 
 ```text
 app/
-├── main.py                    Entry point: app object, CORS + request-id middleware,
-│                              router mounting, exception handlers, health probes, model preload
+├── main.py                    Entry point: app object, CORS + request-id middleware, router mounting,
+│                              exception handlers, health probes, /dataentry page, model preload
 ├── api/                       HTTP layer — thin; no business logic
-│   ├── routes_chat.py         GET /api/v1/chat/status, POST /api/v1/chat/ask
-│   ├── routes_sync.py         POST /api/v1/webhook/sync (X-Webhook-Secret), POST /api/v1/admin/sync (x-admin-token)
-│   └── dependencies.py        FastAPI dependencies: secret checks, SYNC_ENABLED switch, per-IP rate limit
+│   ├── routes_chat.py         POST /api/v1/chat (+ in-process session memory), GET /chat/status,
+│   │                          POST /chat/ask (deprecated v1 contract)
+│   ├── routes_admin.py        /api/v1/admin/*: auth, logout, schema, entries CRUD, bulk import, sync + status
+│   ├── routes_sync.py         POST /api/v1/webhook/sync (X-Webhook-Secret)
+│   └── dependencies.py        Admin sessions (sign/verify), secret checks, SYNC_ENABLED switch, RateLimiter
 ├── core/                      Cross-cutting infrastructure — imports nothing from other app layers
 │   ├── config.py              Settings (pydantic-settings): the ONLY place configuration is read
 │   ├── exceptions.py          ExternalServiceError + exception handlers (the error contract)
 │   └── logging.py             Log format with request id on every line
 ├── models/                    Pydantic schemas — pure data, no imports from the app
-│   ├── chat.py                ChatTurn, ChatAskRequest, Source, ChatAskResponse, ErrorResponse
-│   └── sync.py                SyncReport
-└── services/                  Business logic — framework-agnostic (no FastAPI imports)
-    ├── retrieval_service.py   RAG orchestrator: answer_question, fusion, evidence gate, context, citations
-    ├── query_service.py       Query planning: follow-up rewrite, "list all X" category routing
-    ├── embedding_service.py   Local models (FastEmbed): dense + BM25 vectors, embedding version, model cache
-    ├── qdrant_service.py      Vector store: collection schema, upserts, deletes, batched hybrid query
-    ├── rerank_service.py      Optional cross-encoder reranking (off by default)
-    ├── llm_service.py         Groq / Gemini over HTTPS: grounding prompt, retries, Retry-After
-    ├── data_fetcher.py        Knowledge-base source: Supabase download, validation, Document model
-    └── sync_service.py        Sync orchestrator: fetch → diff fingerprints → embed changed → upsert/delete
+│   ├── knowledge.py           KnowledgeEntryIn / KnowledgeEntry + the 7 categories: the ONE schema behind table, payload and grid
+│   ├── chat.py                ChatRequest/ChatResponse/Source, legacy ChatAsk*, ErrorResponse
+│   └── sync.py                SyncReport, SyncStatus
+├── services/                  Business logic — framework-agnostic (no FastAPI imports)
+│   ├── retrieval_service.py   RAG orchestrator: answer_question, fusion, evidence gate, context, citations
+│   ├── query_service.py       Query planning: follow-up rewrite, "list all X" routing over index categories
+│   ├── embedding_service.py   Local models (FastEmbed): dense + BM25 vectors, embedding version, model cache
+│   ├── qdrant_service.py      Vector store: collection schema, chunk upserts/deletes, category facets, hybrid query
+│   ├── rerank_service.py      Optional cross-encoder reranking (off by default)
+│   ├── llm_service.py         Groq over HTTPS: persona + fixed grounding rules, retries, Retry-After
+│   ├── chunking.py            Entries → chunks: normalise, split long content, fingerprint, embedding text
+│   ├── supabase_repository.py SupabaseRepository: async CRUD + bulk upsert over Supabase REST (PostgREST)
+│   └── sync_service.py        KnowledgeSyncService: fetch → chunk → diff fingerprints → embed changed → delete/upsert
+└── web/                       Admin studio (served at /dataentry, no build step)
+    ├── dataentry.html         Markup + Tailwind (CDN); {{APP_TITLE}}/{{API_PREFIX}} filled in by main.py
+    └── dataentry.js           ES module: login, tabbed spreadsheet grid (edit, add, reorder, paste, save), bulk import, sync, chat tester
+supabase/schema.sql            portfolio_knowledge_base table, 7-category CHECK, indexes, trigger, RLS, per-tab views — run once
+data/sample_entries.json       Neutral sample (a fictional portfolio across all 7 tabs) for first runs and benchmarks
 tests/
-├── conftest.py                fake_models (deterministic embedder) and indexed_client (in-memory Qdrant)
-├── test_api_chat.py           chat + health endpoints, error handling, rate limit, request id
-├── test_api_sync.py           webhook + admin sync endpoints
+├── conftest.py                offline guard (blanks every service URL/key), fake_models, indexed_client
+├── test_admin.py              admin auth, schema, CRUD, bulk import, mocked Supabase → Qdrant sync, /dataentry
+├── test_api_chat.py           chat contract, sessions, legacy alias, health, error handling, rate limit
+├── test_api_sync.py           webhook auth and behaviour
 ├── test_services.py           one section per service (mirrors app/services/)
 └── test_benchmarks.py         metric maths + real-model retrieval-quality gate (RUN_MODEL_TESTS=1)
-benchmarks/                    labelled dataset (rag-evaluation.json), corpus snapshot, metrics, runner, results
+benchmarks/                    eval-cases.json (labels for the sample), metrics.py, evaluate.py (runner)
 scripts/                       initialize_qdrant.py, manual_sync.py (CLI equivalents of admin calls)
 docs/                          architecture assessment, benchmark baseline, improvement roadmap
-examples/                      sample knowledge-base file for new deployments
-postman/                       Postman collection with built-in tests
-app.py                         local dev runner (`python app.py`); Render runs uvicorn directly
-render.yaml, requirements*.txt deployment + dependency pins; pyproject.toml tool config (ruff, pytest)
+Dockerfile, render.yaml        container image; Render blueprint. requirements*.txt pin dependencies.
 .github/workflows/             ci.yml (lint, tests, quality gate), sync.yml (scheduled webhook call)
+private/                       (gitignored) anything personal, e.g. your own benchmark corpus
 ```
 
 ## 2. Layer rules
 
 | Layer | Owns | Must not |
 |---|---|---|
-| `api/` | URL paths, HTTP methods, auth/rate-limit dependencies, request validation via schemas, OpenAPI docs | contain business logic, call Qdrant/LLM directly, catch service errors (handlers do that) |
+| `api/` | URL paths, HTTP methods, auth/rate-limit dependencies, request validation via schemas, OpenAPI docs | contain business logic, call Qdrant/Supabase/LLM directly, catch service errors (handlers do that) |
 | `services/` | All behaviour: retrieval, generation, sync, talking to Qdrant/Supabase/LLM/models | import FastAPI or `app.api`; read `os.environ` (use `settings`) |
-| `models/` | Request/response shapes and their validation limits | import anything from the app; contain logic |
+| `models/` | Request/response/entry shapes and their validation limits | import anything from the app; contain logic beyond field validation |
 | `core/` | Settings, error types + handlers, logging setup | depend on `api/`, `services/` or `models/` |
+| `web/` | Presentation only | hold data or secrets (everything comes from the admin API) |
 
-Dependency direction is strictly downward — verified from the code's imports:
+Dependency direction is strictly downward:
 
 ```mermaid
 flowchart TD
-    main[main.py] --> routes_chat & routes_sync
+    main[main.py] --> routes_chat & routes_admin & routes_sync
     main --> exceptions[core/exceptions] & logging[core/logging]
     routes_chat --> deps[api/dependencies] & mchat[models/chat] & retrieval
-    routes_sync --> deps & mchat & msync[models/sync] & sync
+    routes_admin --> deps & mknow[models/knowledge] & msync[models/sync] & sync & repo
+    routes_sync --> deps & msync & sync
     retrieval[retrieval_service] --> query[query_service] & embedding[embedding_service] & qdrant[qdrant_service] & rerank[rerank_service] & llm[llm_service]
     query --> llm
     rerank --> embedding
-    sync[sync_service] --> fetcher[data_fetcher] & embedding & qdrant & msync
-    qdrant --> fetcher
-    embedding & llm & qdrant & fetcher --> exceptions
-    deps & logging & embedding & llm & qdrant & fetcher & query & rerank & retrieval --> config[core/config]
+    sync[sync_service] --> repo[supabase_repository] & chunking & embedding & qdrant & msync & mknow
+    qdrant --> chunking
+    chunking --> mknow
+    repo --> mknow
+    embedding & llm & qdrant & repo --> exceptions
+    deps & logging & embedding & llm & qdrant & repo & chunking & query & rerank & retrieval --> config[core/config]
 ```
 
-The single cross-layer edge is `sync_service → models/sync` (sync returns its report
-schema). No service imports `api/`; `core/` and `models/` import nothing from the app.
+The only edges from `services/` into `models/` are the entry schema (`knowledge.py`) and the
+sync report (`sync.py`). No service imports `api/`; `core/` and `models/` import nothing from the app.
 
-## 3. Request flow: `POST /api/v1/chat/ask`
+## 3. Request flow: `POST /api/v1/chat`
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant C as Client
     participant M as main.py middleware
-    participant R as routes_chat.ask
+    participant R as routes_chat.chat
     participant D as dependencies
     participant RS as retrieval_service
     participant QS as query_service
@@ -91,131 +103,151 @@ sequenceDiagram
     participant RR as rerank_service
     participant L as llm_service
 
-    C->>M: POST /api/v1/chat/ask {question, history}
+    C->>M: POST /api/v1/chat {message, session_id?, history?}
     M->>M: assign X-Request-ID (log context)
     M->>R: route
-    R->>D: enforce_rate_limit (429 + Retry-After if exceeded)
-    R->>R: validate body against models/chat.ChatAskRequest (422 if invalid)
-    R->>RS: answer_question(question, history)
-    RS->>QS: plan_query
+    R->>D: chat_rate_limit (429 + Retry-After if exceeded)
+    R->>R: validate body (422); history = body.history or session memory
+    R->>RS: answer_question(message, history)
+    RS->>Q: list_categories (facet, cached 5 min; failure → last known list)
+    RS->>QS: plan_query(message, history, categories)
     opt follow-up with history
         QS->>L: complete(rewrite prompt) → standalone query
     end
     QS-->>RS: QueryPlan(retrieval_query, categories, list_mode)
     RS->>E: embed_query + embed_sparse_query (local, ~10 ms)
     RS->>Q: query_candidates — dense + BM25 (+ category) in ONE round-trip
-    Q-->>RS: ranked hits per retriever
-    RS->>RS: fuse (RRF) → candidates
+    Q-->>RS: ranked chunks per retriever
+    RS->>RS: fuse (RRF, per chunk) → candidates
     opt RERANKER_MODEL set
         RS->>RR: rerank (falls back to fusion order on failure)
     end
     RS->>RS: select (evidence gate + top-k) → build_context (token budget)
     alt nothing passes the gate
-        RS-->>R: "not available" answer, no LLM call
+        RS-->>R: NO_ANSWER_MESSAGE, no LLM call
     else evidence found
-        RS->>L: generate_answer(question, numbered sources)
-        L-->>RS: answer with [n] citations (retries 429/5xx with backoff)
-        RS->>RS: apply_citations (renumber, keep only cited sources)
+        RS->>L: generate_answer(question, numbered sources) — persona + grounding rules
+        L-->>RS: reply with [n] citations (retries 429/5xx with backoff)
+        RS->>RS: apply_citations (renumber, keep only cited chunks)
     end
     RS->>RS: log one `rag_request` line (timings, counts — no question text)
-    RS-->>R: {success, answer, sources[, debug]}
-    R-->>C: 200 ChatAskResponse
+    RS-->>R: {reply, sources[, debug]}
+    R->>R: remember the exchange under session_id
+    R-->>C: 200 ChatResponse {reply, sources, session_id, latency_ms}
 ```
 
-An `ExternalServiceError` from embedding (step 10), the Qdrant query (11) or answer
-generation (17) skips the rest and becomes **503 + Retry-After** in `core/exceptions.py`.
-A failed follow-up rewrite (8) and a failed rerank (14) do *not* fail the request: they
-fall back to the original question and the fusion order respectively.
+An `ExternalServiceError` from embedding, the Qdrant query or generation skips the rest and
+becomes **503 + Retry-After** in `core/exceptions.py`. A failed category lookup, follow-up
+rewrite or rerank does *not* fail the request: each falls back (last categories, original
+question, fusion order).
 
-## 4. Sync flow: `POST /api/v1/webhook/sync` (and `/admin/sync`)
+## 4. Admin flow: `/dataentry` and `/api/v1/admin/*`
+
+1. `GET /dataentry` serves `web/dataentry.html` (title/prefix filled in, framing denied); the
+   module calls `GET /admin/schema` — a 401 shows the login gate.
+2. `POST /admin/auth` → `check_admin_password` (constant time; `login_rate_limit` 5/min/IP) →
+   `issue_session_token` → HttpOnly SameSite=Strict cookie scoped to `/api/v1/admin`.
+3. Every other admin route depends on `require_admin` (`session_is_valid`: HMAC + expiry).
+4. CRUD routes call `SupabaseRepository` (via `get_repository`, the same instance the sync uses).
+   `DuplicateEntryError` → 409, missing row → 404, `SupabaseServiceError` → 503 **with** its
+   actionable message (`expose = True`).
+
+## 5. Sync flow: `POST /admin/sync` (and `/webhook/sync`)
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant A as GitHub Actions / Supabase webhook / admin
-    participant RS as routes_sync
-    participant D as dependencies
-    participant S as sync_service
-    participant F as data_fetcher
+    participant A as Admin UI / GitHub Actions / Supabase webhook
+    participant RT as routes_admin / routes_sync
+    participant S as KnowledgeSyncService
+    participant SB as SupabaseRepository
+    participant CH as chunking
     participant E as embedding_service
     participant Q as qdrant_service
 
-    A->>RS: POST /webhook/sync (X-Webhook-Secret)
-    RS->>D: require_webhook_secret (401/503), require_sync_enabled (403)
-    RS->>S: run_sync() — returns at once if a sync is already running
-    S->>S: worker thread (chat keeps serving)
-    S->>F: fetch_knowledge_records (Supabase Storage)
-    S->>F: build_documents (validate categories, dedupe, fingerprint)
-    S->>Q: ensure_collection (recreate if schema/dimension changed)
-    S->>Q: fetch_existing_fingerprints
-    S->>S: diff → to_upsert (changed/new), to_remove (gone)
-    S->>E: embed_documents + embed_sparse_documents (changed only)
-    S->>Q: upsert_documents, delete_by_record_ids
-    S-->>RS: SyncReport(added, updated, removed, unchanged, reindexed)
+    A->>RT: POST /admin/sync (cookie) or /webhook/sync (X-Webhook-Secret)
+    RT->>S: run() — returns at once if a sync is already running
+    S->>SB: list_entries(active_only) — stage "fetching" (pages past 1000 rows)
+    S->>S: worker thread from here (chat keeps serving)
+    S->>CH: build_chunks (dedupe, split, entry fingerprint)
+    S->>Q: ensure_collection (recreate if vector schema changed; add missing indexes)
+    S->>Q: scan_index → fingerprints per entry (+ legacy points to delete)
+    S->>S: diff → changed (new/edited/partial) and removed entries
+    S->>E: embed_documents + embed_sparse_documents — stage "embedding" (changed only)
+    S->>Q: delete_entries(changed ∪ removed) then upsert_chunks — stage "upserting"
+    S->>Q: clear_category_cache
+    S-->>RT: SyncReport(total_entries, chunks_embedded, vectors_upserted, added, updated, removed, unchanged, duration_ms)
 ```
 
-Sync never raises to the client: failures come back as `{"success": false, "error": ...}`.
+The UI polls `GET /admin/sync` while the POST is in flight to show the live stage. Sync never
+raises to the client: failures come back as `{"success": false, "error": ...}`.
 
-## 5. Error contract
+## 6. Error contract
 
 Every error body is `{"success": false, "error": "<message>"}` (`models/chat.ErrorResponse`);
 422s add `details: [{"field", "message"}]` built by `core/exceptions._field_error` (never the input values).
 
 | Status | Raised by | Cause |
 |---|---|---|
-| 401 / 503 | `api/dependencies._check_secret` | wrong secret / secret not configured on the server |
+| 401 | `api/dependencies` | wrong admin password / webhook secret; missing, forged or expired session |
 | 403 | `api/dependencies.require_sync_enabled` | `SYNC_ENABLED=false` |
-| 422 | FastAPI validation → `core/exceptions` | body violates `models/` limits |
-| 429 | `api/dependencies.enforce_rate_limit` | over `RATE_LIMIT_PER_MINUTE` (with `Retry-After`) |
-| 503 | any `ExternalServiceError` subclass → `core/exceptions` | `QdrantServiceError`, `EmbeddingServiceError`, `LLMServiceError` (carries provider `Retry-After`), `SupabaseServiceError` |
+| 404 / 409 | `api/routes_admin` | entry not found / id already exists |
+| 422 | FastAPI validation → `core/exceptions` | body or path violates `models/` limits |
+| 429 | `api/dependencies.RateLimiter` | over the chat or login limit (with `Retry-After`) |
+| 503 | `_check_secret` / `require_admin` | admin password or webhook secret not configured |
+| 503 | any `ExternalServiceError` subclass → `core/exceptions` | Qdrant, embedding, Groq (carries provider `Retry-After`), Supabase (message exposed) |
 | 500 | `core/exceptions._unhandled_error` | a bug — stack trace logged, never returned |
 
-## 6. Debugging guide
+## 7. Debugging guide
 
 Every response has `X-Request-ID`; every log line for that request carries the same id
 in `[brackets]`. Chat requests log one line:
 
 ```text
-INFO [3f2a9c...] app.services.retrieval_service: rag_request {"embed_ms": 12.1, "search_ms": 301.2,
+INFO [3f2a9c...] app.services.retrieval_service: rag_request {"plan_ms": 2.1, "embed_ms": 12.1, "search_ms": 301.2,
   "retrievers": {"dense": 20, "sparse": 20}, "selected": 5, "top_score": 0.67, "llm_ms": 1387.6,
   "total_ms": 1701.3, "refused": false, "rewritten": false, "list_mode": false, ...}
 ```
 
-For a full trace (candidates, per-retriever ranks, scores, what passed the gate) set
-`RAG_DEBUG=true` locally and read `debug` in the response.
+Syncs log one `sync {...}` line with the report. For a full chat trace (candidates,
+per-retriever ranks, scores, what passed the gate) set `RAG_DEBUG=true` locally.
 
 | Symptom | Look at |
 |---|---|
-| 503 on every chat request | `qdrant_service.query_candidates` (collection missing / old schema → run a sync), then `llm_service` |
-| Every answer is "not available" | log `No indexed documents for the current embedding version` → models changed, run a sync; else `retrieval_service.select` thresholds |
-| Right record exists but isn't cited | `RAG_DEBUG` → is it in `candidates`? No → `embedding_service` / `query_service` routing; yes but not `selected` → `select` gate; selected but uncited → prompt in `llm_service` |
+| 503 on every chat request | `/api/v1/health`, then `qdrant_service.query_candidates` (collection missing → sync), then `llm_service` (key) |
+| Every answer is "not available" | log `No indexed chunks for the current embedding version` → models changed or never synced; else `retrieval_service.select` thresholds |
+| Right entry exists but isn't cited | `RAG_DEBUG` → in `candidates`? No → `embedding_service` / `query_service` routing / tags; yes but not `selected` → `select` gate; selected but uncited → prompt in `llm_service` |
+| "List all X" misses entries | `query_service.route_categories` — does the question name the category (or its last word) in plural, or use list/all/every? |
 | Follow-up misunderstood | `query_service.needs_rewrite` / `rewrite_query` (`rewritten` flag in the log) |
-| Raw `【1】` or wrong `[n]` in answers | `retrieval_service.apply_citations` |
-| Sync `success: false` | the `error` field: Supabase → `data_fetcher.fetch_knowledge_records`; categories → `data_fetcher.build_documents` |
-| Sync re-embeds everything each run | `embedding_service.embedding_version` changed, or fingerprint inputs in `data_fetcher.build_documents` |
+| Raw `【1】` or wrong `[n]` in replies | `retrieval_service.apply_citations` |
+| Sync `success: false` | the `error` field: Supabase setup → `supabase_repository._error_message` |
+| Sync re-embeds everything each run | `embedding_service.embedding_version` changed, or fingerprint inputs in `chunking.build_chunks` |
+| Admin keeps signing out | process restarted (per-process session secret in `api/dependencies`) |
 | 401 on webhook from GitHub Actions | `SYNC_WEBHOOK_SECRET` (repo secret) must equal `WEBHOOK_SECRET` (server) |
-| Slow first request after idle | Render cold start; `main.lifespan` preloads models in the background |
+| Slow first request after idle | cold start; `main.lifespan` preloads models in the background |
 
-## 7. Where to add things
+## 8. Where to add things
 
 | Change | Touch |
 |---|---|
-| New endpoint | `api/routes_*.py` (+ schema in `models/`, logic in `services/`, test in `tests/test_api_*.py`) |
+| New column | `models/knowledge.py` (the grid adds a column automatically) → `supabase/schema.sql` → `chunking` if it should be embedded or fingerprinted |
+| Different categories | the `Category` literal + `ID_PREFIXES` in `models/knowledge.py` → CHECK constraint and views in `supabase/schema.sql` (a test checks they match) |
+| New endpoint | `api/routes_*.py` (+ schema in `models/`, logic in `services/`, test in `tests/`) |
 | New setting | `core/config.py` → `.env.example` → README configuration table |
-| New LLM provider | a branch in `llm_service.complete` (same `system`/`user` interface) |
-| New knowledge source | a function in `data_fetcher.py` returning the same record dicts; call it from `sync_service._sync_blocking` |
+| New knowledge source | something returning `KnowledgeEntryIn`s; give `KnowledgeSyncService` a repository with `list_entries` |
 | New retriever | a request in `qdrant_service.query_candidates`; fusion picks it up automatically by name |
-| New external dependency error | subclass `ExternalServiceError` in its service → automatic 503 |
+| New external dependency error | subclass `ExternalServiceError` in its service → automatic 503 (set `expose` only for safe messages) |
 | Retrieval/prompt change | run `python -m benchmarks.evaluate` before and after; keep `tests/test_benchmarks.py` green |
 
-## 8. Tests at a glance
+## 9. Tests at a glance
 
 | Test file | Covers |
 |---|---|
-| `test_api_chat.py` | routes_chat, health probes, error handlers, rate limit, request id |
-| `test_api_sync.py` | routes_sync auth, SYNC_ENABLED, webhook vs admin secrets |
-| `test_services.py` | data_fetcher, qdrant_service, embedding_service, query_service, retrieval_service, sync_service indexing, rerank_service, llm_service — sections in that order |
+| `test_admin.py` | every admin route needs a session; cookie flags; forged/expired tokens; password change; login limit; CRUD; bulk import (incl. view-style `"TRUE"/"FALSE"`); mocked Supabase → in-memory Qdrant sync; stages; concurrency; /dataentry headers and escaping |
+| `test_api_chat.py` | chat contract, sessions, explicit history, legacy alias, health, error handlers, rate limit, request id |
+| `test_api_sync.py` | webhook auth, SYNC_ENABLED |
+| `test_services.py` | entry schema (and its match with the SQL CHECK + views), chunking, supabase_repository, qdrant_service, embedding_service, query_service, retrieval_service, sync indexing, rerank_service, citations, answer_question, llm_service |
 | `test_benchmarks.py` | metric maths; with `RUN_MODEL_TESTS=1`, the retrieval-quality floors |
 
-`pytest` runs fully offline (fake embedder, in-memory Qdrant, stubbed LLM).
-`RUN_MODEL_TESTS=1 pytest` adds the real-model checks.
+`pytest` runs fully offline — the autouse `offline` fixture blanks every service URL and key,
+so a developer's `.env` can never be reached. `RUN_MODEL_TESTS=1 pytest` adds real-model checks.
